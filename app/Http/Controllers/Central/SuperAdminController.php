@@ -75,6 +75,37 @@ class SuperAdminController extends Controller
     }
 
     /**
+     * Renew an existing license key & switch mode (e.g. trial -> full)
+     */
+    public function renewLicense(Request $request)
+    {
+        $validated = $request->validate([
+            'key' => 'required|string',
+            'mode' => 'nullable|string|in:trial,full',
+            'extension_days' => 'nullable|integer|min:1',
+        ]);
+
+        $result = $this->licenseService->renewLicense(
+            $validated['key'],
+            $validated['mode'] ?? 'full',
+            $validated['extension_days'] ?? 365
+        );
+
+        if (!$result['success']) {
+            return response()->json([
+                'success' => false,
+                'message' => $result['message'],
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $result['message'],
+            'data' => $result['license'],
+        ]);
+    }
+
+    /**
      * Toggle tenant status (suspend/activate)
      */
     public function toggleTenantStatus(Request $request, string $uuid)

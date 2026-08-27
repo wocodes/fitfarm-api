@@ -40,6 +40,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/dashboard', [SuperAdminController::class, 'dashboard']);
             Route::get('/tenants', [SuperAdminController::class, 'listTenants']);
             Route::post('/licenses/generate', [SuperAdminController::class, 'generateLicense']);
+            Route::post('/licenses/renew', [SuperAdminController::class, 'renewLicense']);
             Route::patch('/tenants/{uuid}/status', [SuperAdminController::class, 'toggleTenantStatus']);
         });
     });

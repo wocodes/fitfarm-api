@@ -52,7 +52,7 @@ class SetupController extends Controller
             'license_key' => 'required|string',
             'gym_name' => 'required|string|max:255',
             'admin_name' => 'required|string|max:255',
-            'admin_email' => 'required|email|unique:tenant_users,email',
+            'admin_email' => 'required|email',
             'admin_password' => 'required|string|min:8',
             'timezone' => 'nullable|string',
             'currency' => 'nullable|string',

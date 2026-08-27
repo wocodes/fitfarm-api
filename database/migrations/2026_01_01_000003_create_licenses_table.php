@@ -14,7 +14,9 @@ return new class extends Migration
         Schema::create('licenses', function (Blueprint $table) {
             $table->id();
             $table->string('key')->unique();
+            $table->string('user_email')->nullable();
             $table->foreignId('tenant_id')->nullable()->constrained('tenants')->onDelete('set null');
+            $table->string('mode')->default('trial'); // 'trial', 'full'
             $table->string('plan_tier')->default('starter');
             $table->json('allowed_features')->nullable();
             $table->integer('max_members')->default(100);

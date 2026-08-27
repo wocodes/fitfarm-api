@@ -39,7 +39,7 @@ class TenantProvisioningService
                 'pricing_path' => $data['pricing_path'] ?? 'free_tier',
                 'plan_tier' => $data['plan_tier'] ?? 'starter',
                 'status' => 'trialing',
-                'trial_ends_at' => Carbon::now()->addDays(14),
+                'trial_ends_at' => Carbon::now()->addDays(30),
                 'setup_completed_at' => Carbon::now(),
             ]);
 
@@ -54,14 +54,24 @@ class TenantProvisioningService
                 }
             }
 
-            // 3. Create Tenant Owner/Admin User
-            $owner = TenantUser::create([
-                'tenant_id' => $tenant->id,
-                'name' => $data['admin_name'],
-                'email' => $data['admin_email'],
-                'password' => Hash::make($data['admin_password']),
-                'role' => 'owner',
-            ]);
+            // 3. Create or Link Tenant Owner/Admin User
+            $owner = TenantUser::where('email', $data['admin_email'])->first();
+            if ($owner) {
+                $owner->update([
+                    'tenant_id' => $tenant->id,
+                    'name' => $data['admin_name'],
+                    'password' => Hash::make($data['admin_password']),
+                    'role' => 'owner',
+                ]);
+            } else {
+                $owner = TenantUser::create([
+                    'tenant_id' => $tenant->id,
+                    'name' => $data['admin_name'],
+                    'email' => $data['admin_email'],
+                    'password' => Hash::make($data['admin_password']),
+                    'role' => 'owner',
+                ]);
+            }
 
             // 4. Provision Selected Features
             $featuresList = [
@@ -105,13 +115,16 @@ class TenantProvisioningService
             // 6. Generate Sanctum Auth Token for immediate login
             $token = $owner->createToken('auth-token', ['tenant_id' => $tenant->id])->plainTextToken;
 
+            $adminAppBase = env('ADMIN_APP_URL', 'http://localhost:3001');
+            $memberAppBase = env('MEMBER_APP_URL', 'http://localhost:3002');
+
             return [
                 'tenant' => $tenant,
                 'owner' => $owner,
                 'token' => $token,
                 'urls' => [
-                    'member_app' => "https://{$tenant->slug}.fitcloud.io",
-                    'admin_app' => "https://admin.{$tenant->slug}.fitcloud.io",
+                    'member_app' => "{$memberAppBase}?tenant={$tenant->slug}",
+                    'admin_app' => "{$adminAppBase}?tenant={$tenant->slug}",
                 ]
             ];
         });

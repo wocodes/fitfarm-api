@@ -80,11 +80,13 @@ class PaystackService
             'status' => 'pending',
         ]);
 
+        $memberAppBase = env('MEMBER_APP_URL', 'http://localhost:3002');
+
         $payload = [
-            'email' => $member->email ?? "member{$member->id}@{$tenant->slug}.fitcloud.io",
+            'email' => $member->email ?? "member{$member->id}@polanfit.com",
             'amount' => $amountInKobo,
             'reference' => $reference,
-            'callback_url' => "https://{$tenant->slug}.fitcloud.io/dashboard?payment=success",
+            'callback_url' => "{$memberAppBase}/dashboard?tenant={$tenant->slug}&payment=success",
             'metadata' => [
                 'tenant_uuid' => $tenant->uuid,
                 'member_uuid' => $member->uuid,

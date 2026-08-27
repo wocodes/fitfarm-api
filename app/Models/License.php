@@ -11,7 +11,9 @@ class License extends Model
 
     protected $fillable = [
         'key',
+        'user_email',
         'tenant_id',
+        'mode',
         'plan_tier',
         'allowed_features',
         'max_members',

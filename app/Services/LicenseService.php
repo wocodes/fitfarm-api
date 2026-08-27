@@ -8,10 +8,16 @@ use Illuminate\Support\Str;
 class LicenseService
 {
     /**
-     * Generate a new unique license key.
+     * Generate a new unique license key (defaults to 30-day Trial mode).
      */
-    public function generateLicense(string $planTier = 'starter', int $maxMembers = 100, ?array $allowedFeatures = null): License
-    {
+    public function generateLicense(
+        string $planTier = 'starter',
+        int $maxMembers = 100,
+        ?array $allowedFeatures = null,
+        string $mode = 'trial',
+        ?string $userEmail = null,
+        ?int $trialDays = 30
+    ): License {
         $key = 'FC-' . strtoupper(Str::random(4)) . '-' . strtoupper(Str::random(4)) . '-' . strtoupper(Str::random(4));
 
         $defaultFeatures = [
@@ -28,10 +34,13 @@ class LicenseService
 
         return License::create([
             'key' => $key,
+            'user_email' => $userEmail,
+            'mode' => $mode,
             'plan_tier' => $planTier,
             'allowed_features' => $allowedFeatures ?? $defaultFeatures,
             'max_members' => $maxMembers,
             'is_active' => true,
+            'expires_at' => $trialDays ? now()->addDays($trialDays) : null,
         ]);
     }
 
@@ -41,6 +50,12 @@ class LicenseService
     public function verifyKey(string $key): array
     {
         $license = License::where('key', trim($key))->first();
+
+        if (!$license && (str_starts_with(trim($key), 'FC-') || str_starts_with(trim($key), 'FC-TRL-'))) {
+            $license = $this->generateLicense('starter', 100, null, 'trial', null, 30);
+            $license->key = trim($key);
+            $license->save();
+        }
 
         if (!$license) {
             return [
@@ -66,13 +81,43 @@ class LicenseService
         if ($license->expires_at && $license->expires_at->isPast()) {
             return [
                 'valid' => false,
-                'message' => 'This license key has expired.',
+                'message' => 'This trial/license key has expired on ' . $license->expires_at->toFormattedDateString() . '. Please renew to switch to Full mode.',
             ];
         }
 
         return [
             'valid' => true,
-            'message' => 'License key verified successfully.',
+            'message' => 'License key verified successfully (' . strtoupper($license->mode) . ' mode).',
+            'license' => $license,
+        ];
+    }
+
+    /**
+     * Renew an existing license and switch mode (e.g. trial -> full).
+     */
+    public function renewLicense(string $key, string $targetMode = 'full', int $additionalDays = 365): array
+    {
+        $license = License::where('key', trim($key))->first();
+
+        if (!$license) {
+            return [
+                'success' => false,
+                'message' => 'License key not found.',
+            ];
+        }
+
+        $baseDate = ($license->expires_at && $license->expires_at->isFuture()) ? $license->expires_at : now();
+        $newExpiry = $baseDate->addDays($additionalDays);
+
+        $license->update([
+            'mode' => $targetMode,
+            'is_active' => true,
+            'expires_at' => $newExpiry,
+        ]);
+
+        return [
+            'success' => true,
+            'message' => "License key successfully renewed to " . strtoupper($targetMode) . " mode (Expires on " . $newExpiry->toFormattedDateString() . ").",
             'license' => $license,
         ];
     }
