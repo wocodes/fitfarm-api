@@ -16,6 +16,7 @@ use App\Http\Controllers\Admin\TransactionController;
 use App\Http\Controllers\Central\AuthController;
 use App\Http\Controllers\Central\SetupController;
 use App\Http\Controllers\Central\SuperAdminController;
+use App\Http\Controllers\Member\MemberPortalController;
 use App\Http\Controllers\Webhook\PaystackWebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -26,6 +27,15 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::prefix('v1')->group(function () {
+
+    // Member Portal Public Endpoints
+    Route::get('/member/portal/info', [MemberPortalController::class, 'portalInfo']);
+    Route::post('/member/auth/login', [MemberPortalController::class, 'login']);
+    Route::post('/member/auth/register', [MemberPortalController::class, 'register']);
+
+    Route::middleware(['auth:sanctum'])->group(function () {
+        Route::get('/member/profile', [MemberPortalController::class, 'profile']);
+    });
 
     // 1. Central Platform Public Endpoints
     Route::post('/central/auth/register', [AuthController::class, 'register']);

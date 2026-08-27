@@ -59,6 +59,11 @@ class Tenant extends Model
         return $this->hasOne(ThemeSetting::class);
     }
 
+    public function pricingPlans()
+    {
+        return $this->hasMany(PricingPlan::class);
+    }
+
     public function hasFeature(string $featureKey): bool
     {
         return $this->features()->where('feature_key', $featureKey)->where('enabled', true)->exists();
