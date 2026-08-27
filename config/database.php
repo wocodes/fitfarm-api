@@ -60,8 +60,21 @@ return [
             'strict' => true,
             'engine' => null,
             'options' => extension_loaded('pdo_mysql') ? array_filter([
-                Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+                PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
+        ],
+
+        'java_mysql' => [
+            'driver' => 'mysql',
+            'host' => env('JAVA_DB_HOST', '127.0.0.1'),
+            'port' => env('JAVA_DB_PORT', '3306'),
+            'database' => env('JAVA_DB_DATABASE', 'smartpass'),
+            'username' => env('JAVA_DB_USERNAME', 'smartpass_user'),
+            'password' => env('JAVA_DB_PASSWORD', 'smartpass_password'),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'strict' => false,
         ],
 
         'mariadb' => [
