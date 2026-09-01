@@ -14,6 +14,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 class MigrateFromJavaDatabase extends Command
@@ -68,8 +69,12 @@ class MigrateFromJavaDatabase extends Command
         if (!$tenant) {
             $tenant = Tenant::first();
             if (!$tenant) {
-                $this->error("❌ Target tenant '{$tenantSlug}' not found and no default tenant exists. Please run setup first.");
-                return 1;
+                $tenant = Tenant::create([
+                    'name' => 'PolanFit Fitness',
+                    'slug' => $tenantSlug ?: 'polanfit-fitness',
+                    'domain' => ($tenantSlug ?: 'polanfit-fitness') . '.fitcloud.io',
+                    'status' => 'active',
+                ]);
             }
         }
 
@@ -114,6 +119,12 @@ class MigrateFromJavaDatabase extends Command
         $this->migratePaymentTypes($tenant, $isDryRun);
         $this->migrateAccounts($tenant, $isDryRun);
 
+        // Automatically fix & normalize non-bcrypt passwords
+        if (!$isDryRun) {
+            $this->info("\n🔑 Running password normalization (fix:passwords)...");
+            $this->call('fix:passwords');
+        }
+
         // Generate CSV Report
         $this->generateMigrationReport($tenantSlug, $isDryRun);
 
@@ -129,33 +140,129 @@ class MigrateFromJavaDatabase extends Command
         try {
             $users = DB::connection('java_mysql')->table('app_user')->get();
             $processed = count($users);
+            $defaultPasswordHash = Hash::make('password');
+
+            // Load Java app_user_roles and app_user_permissions
+            $userRolesMap = DB::connection('java_mysql')->table('app_user_roles')
+                ->get()
+                ->groupBy('app_user_id')
+                ->map(fn($rows) => $rows->pluck('roles')->toArray());
+
+            $userPermissionsMap = DB::connection('java_mysql')->table('app_user_permissions')
+                ->get()
+                ->groupBy('app_user_id')
+                ->map(fn($rows) => $rows->pluck('permission')->toArray());
 
             foreach ($users as $u) {
-                $email = strtolower($u->username ?? "user_{$u->id}@fitcloud.local");
-                $existing = TenantUser::where('tenant_id', $tenant->id)->where('email', $email)->first();
+                try {
+                    $email = strtolower(trim($u->username ?? "user_{$u->id}@fitcloud.local"));
+                    if (empty($email)) {
+                        $email = "user_{$u->id}@fitcloud.local";
+                    }
 
-                if ($existing) {
-                    $this->userIdMap[$u->id] = $existing->id;
-                    $skipped++;
-                    continue;
-                }
+                    $rolesList = $userRolesMap->get($u->id) ?? [];
+                    $permsList = $userPermissionsMap->get($u->id) ?? [];
 
-                if (!$isDryRun) {
-                    $newUser = TenantUser::create([
-                        'tenant_id' => $tenant->id,
-                        'name' => $u->full_name ?? $u->username,
-                        'email' => $email,
-                        'phone' => $u->phone_number ?? null,
-                        'password' => $u->password ?? bcrypt('password'),
-                        'role' => str_contains(strtoupper($u->roles ?? ''), 'ADMIN') ? 'owner' : 'staff',
-                    ]);
-                    $this->userIdMap[$u->id] = $newUser->id;
+                    $isSuperAdmin = in_array('ROLE_SUPER_ADMIN', $rolesList) || $u->id == 1 || $email === 'admin@polanfit.com';
+                    $isAdmin = in_array('ROLE_ADMIN', $rolesList) || str_contains(strtolower($u->username ?? ''), 'admin');
+                    $isManager = in_array('ROLE_MANAGER', $rolesList);
+                    $isStaff = in_array('ROLE_STAFF', $rolesList);
+
+                    // Skip pure member accounts from tenant_users table
+                    if (!$isSuperAdmin && !$isAdmin && !$isManager && !$isStaff && empty($permsList)) {
+                        $skipped++;
+                        continue;
+                    }
+
+                    if ($isSuperAdmin) {
+                        $role = 'owner';
+                    } else if ($isAdmin) {
+                        $role = 'admin';
+                    } else if ($isManager) {
+                        $role = 'manager';
+                    } else {
+                        $role = 'staff';
+                    }
+
+                    $existing = TenantUser::whereRaw('LOWER(email) = ?', [$email])->first();
+
+                    if ($existing) {
+                        $this->userIdMap[$u->id] = $existing->id;
+                        if (!$isDryRun) {
+                            $existing->update([
+                                'tenant_id' => $tenant->id,
+                                'role' => $role,
+                                'phone' => $u->phone_number ?? $existing->phone,
+                                'name' => $u->full_name ?? $existing->name,
+                            ]);
+                            setPermissionsTeamId($tenant->id);
+                            if (!empty($permsList)) {
+                                $existing->syncPermissions($permsList);
+                            } else {
+                                $existing->syncPermissions(['MANAGE_TRANSACTIONS', 'MANAGE_CHECKINS', 'MANAGE_MEMBERS', 'VIEW_TRANSACTIONS']);
+                            }
+                        }
+                        $created++;
+                        continue;
+                    }
+
+                    $rawPassword = $u->password ?? null;
+
+                    if (is_string($rawPassword) && !empty($rawPassword)) {
+                        $rawPassword = str_replace('{bcrypt}', '', $rawPassword);
+                        if (str_starts_with($rawPassword, '$2a$')) {
+                            $password = '$2y$' . substr($rawPassword, 4);
+                        } else if (str_starts_with($rawPassword, '$2y$') || str_starts_with($rawPassword, '$2b$')) {
+                            $password = $rawPassword;
+                        } else {
+                            $password = Hash::make($rawPassword);
+                        }
+                    } else {
+                        $password = $defaultPasswordHash;
+                    }
+
+                    if (!$isDryRun) {
+                        $newId = DB::table('tenant_users')->insertGetId([
+                            'tenant_id' => $tenant->id,
+                            'name' => $u->full_name ?? $u->username,
+                            'email' => $email,
+                            'phone' => $u->phone_number ?? null,
+                            'password' => $password,
+                            'role' => $role,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                        $this->userIdMap[$u->id] = $newId;
+
+                        $tenantUser = TenantUser::find($newId);
+                        if ($tenantUser) {
+                            setPermissionsTeamId($tenant->id);
+                            if (!empty($permsList)) {
+                                $tenantUser->syncPermissions($permsList);
+                            } else {
+                                $tenantUser->syncPermissions(['MANAGE_TRANSACTIONS', 'MANAGE_CHECKINS', 'MANAGE_MEMBERS', 'VIEW_TRANSACTIONS']);
+                            }
+                        }
+
+                        if ($isSuperAdmin || $isAdmin) {
+                            DB::table('users')->updateOrInsert(
+                                ['email' => $email],
+                                [
+                                    'name' => $u->full_name ?? $u->username,
+                                    'password' => $password,
+                                    'created_at' => now(),
+                                    'updated_at' => now(),
+                                ]
+                            );
+                        }
+                    }
+                    $created++;
+                } catch (\Exception $e) {
+                    $errors++;
                 }
-                $created++;
             }
         } catch (\Exception $e) {
-            $this->warn("Notice for app_user migration: " . $e->getMessage());
-            $errors++;
+            $this->warn("Notice for app_user connection/fetch: " . $e->getMessage());
         }
 
         $this->report[] = ['Table' => 'tenant_users', 'Processed' => $processed, 'Created' => $created, 'Skipped' => $skipped, 'Errors' => $errors];
@@ -205,12 +312,15 @@ class MigrateFromJavaDatabase extends Command
                         'photo_url' => $m->profile_picture_url ?? null,
                         'qr_code' => $m->qr_code ?? null,
                         'fingerprint_template' => $m->biometric_hash ?? null,
+                        'biometric_hash' => $m->biometric_hash ?? null,
                         'blood_group' => $m->blood_group ?? null,
                         'genotype' => $m->genotype ?? null,
                         'emergency_contact_name' => $m->contact_name ?? null,
                         'emergency_contact_phone' => $m->contact_phone_number ?? null,
+                        'registration_source' => $m->registration_source ?? null,
                         'status' => 'active',
                         'created_at' => $m->registration_date ? Carbon::parse($m->registration_date) : now(),
+                        'updated_at' => isset($m->updated_at) && $m->updated_at ? Carbon::parse($m->updated_at) : ($m->registration_date ? Carbon::parse($m->registration_date) : now()),
                     ]);
                     $this->memberIdMap[$m->id] = $newMember->id;
                 }
@@ -236,7 +346,16 @@ class MigrateFromJavaDatabase extends Command
 
             foreach ($plans as $p) {
                 $name = $p->name ?? 'Standard Plan';
-                $existing = PricingPlan::where('tenant_id', $tenant->id)->where('name', $name)->first();
+                $planName = $p->plan_name ?? null;
+                $category = $p->category ?? 'SUBSCRIPTION';
+
+                // Skip FREE / SYSTEM-FR dummy system plans
+                if (in_array(strtoupper($name), ['FREE', 'SYSTEM-FR', 'SYSTEM-FREE']) || in_array(strtoupper($planName ?? ''), ['FREE', 'SYSTEM-FR', 'SYSTEM-FREE'])) {
+                    $skipped++;
+                    continue;
+                }
+
+                $existing = PricingPlan::where('tenant_id', $tenant->id)->where('name', $name)->where('category', $category)->first();
 
                 if ($existing) {
                     $this->planIdMap[$p->id] = $existing->id;
@@ -250,6 +369,8 @@ class MigrateFromJavaDatabase extends Command
                     $newPlan = PricingPlan::create([
                         'tenant_id' => $tenant->id,
                         'name' => $name,
+                        'plan_name' => $planName,
+                        'category' => $category,
                         'description' => $p->sub_text ?? $p->category ?? 'Gym Plan',
                         'price' => $price,
                         'duration_days' => $p->duration_days ?? 30,

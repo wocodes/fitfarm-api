@@ -20,12 +20,33 @@ class SubscriptionController extends Controller
     public function index(Request $request)
     {
         $tenantId = $request->get('tenant_id');
+        $page = (int) $request->input('page', 1);
+        $size = (int) $request->input('size', $request->input('per_page', 20));
 
         $query = MemberPlan::with(['member', 'pricingPlan'])
             ->where('tenant_id', $tenantId);
 
-        if ($request->filled('status')) {
-            $query->where('status', $request->input('status'));
+        if ($request->boolean('expiringSoon') || $request->input('status') === 'EXPIRING_SOON') {
+            $cutoff = Carbon::now()->addDays(7);
+            $query->where(function ($q) use ($cutoff) {
+                $q->whereBetween('expires_at', [Carbon::now(), $cutoff])
+                  ->orWhere('status', 'expired');
+            });
+        } else if ($request->filled('status')) {
+            $statusVal = strtolower($request->input('status'));
+            $query->where('status', $statusVal);
+        }
+
+        if ($request->filled('pricingPlanId')) {
+            $query->where('pricing_plan_id', $request->input('pricingPlanId'));
+        }
+
+        if ($request->filled('startDate')) {
+            $query->where('starts_at', '>=', Carbon::parse($request->input('startDate')));
+        }
+
+        if ($request->filled('endDate')) {
+            $query->where('expires_at', '<=', Carbon::parse($request->input('endDate')));
         }
 
         if ($request->filled('search')) {
@@ -33,15 +54,25 @@ class SubscriptionController extends Controller
             $query->whereHas('member', function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
                   ->orWhere('email', 'like', "%{$search}%")
-                  ->orWhere('phone', 'like', "%{$search}%");
+                  ->orWhere('phone', 'like', "%{$search}%")
+                  ->orWhere('uid', 'like', "%{$search}%");
             });
         }
 
-        $subscriptions = $query->latest()->get();
+        $paginator = $query->latest('starts_at')->paginate($size, ['*'], 'page', $page);
 
         return response()->json([
+            'status' => 'success',
             'success' => true,
-            'data' => $subscriptions,
+            'data' => [
+                'content' => $paginator->items(),
+                'totalElements' => $paginator->total(),
+                'totalPages' => $paginator->lastPage(),
+                'currentPage' => $paginator->currentPage(),
+                'pageSize' => $paginator->perPage(),
+            ],
+            'content' => $paginator->items(),
+            'totalElements' => $paginator->total(),
         ]);
     }
 
@@ -53,17 +84,26 @@ class SubscriptionController extends Controller
         $tenantId = $request->get('tenant_id');
 
         $validated = $request->validate([
-            'member_id' => 'required|exists:members,id',
-            'pricing_plan_id' => 'required|exists:pricing_plans,id',
+            'member_id' => 'required',
+            'pricing_plan_id' => 'required',
             'starts_at' => 'nullable|date',
             'payment_method' => 'nullable|string|in:BANK_TRANSFER,POS,CASH,PAYSTACK',
         ]);
 
         return DB::transaction(function () use ($tenantId, $validated, $request) {
-            $member = Member::where('tenant_id', $tenantId)->findOrFail($validated['member_id']);
-            $plan = PricingPlan::where('tenant_id', $tenantId)->findOrFail($validated['pricing_plan_id']);
+            $member = Member::where('tenant_id', $tenantId)
+                ->where(function ($q) use ($validated) {
+                    $q->where('id', $validated['member_id'])
+                      ->orWhere('uuid', $validated['member_id']);
+                })->firstOrFail();
 
-            $startsAt = $validated['starts_at'] ? Carbon::parse($validated['starts_at']) : Carbon::now();
+            $plan = PricingPlan::where('tenant_id', $tenantId)
+                ->where(function ($q) use ($validated) {
+                    $q->where('id', $validated['pricing_plan_id'])
+                      ->orWhere('uuid', $validated['pricing_plan_id']);
+                })->firstOrFail();
+
+            $startsAt = !empty($validated['starts_at']) ? Carbon::parse($validated['starts_at']) : Carbon::now();
             $expiresAt = (clone $startsAt)->addDays($plan->duration_days);
 
             // Deactivate old active plans for member
@@ -92,7 +132,7 @@ class SubscriptionController extends Controller
                 'currency' => 'NGN',
                 'payment_method' => $paymentMethod,
                 'reference' => 'TXN-' . strtoupper(uniqid()),
-                'status' => 'approved',
+                'status' => 'successful',
             ]);
 
             // Audit log entry
@@ -162,7 +202,7 @@ class SubscriptionController extends Controller
                 'currency' => 'NGN',
                 'payment_method' => $paymentMethod,
                 'reference' => 'EXT-' . strtoupper(uniqid()),
-                'status' => 'approved',
+                'status' => 'successful',
             ]);
 
             // Log Audit Event
@@ -250,25 +290,178 @@ class SubscriptionController extends Controller
     }
 
     /**
-     * Get expiring & expired subscriptions queue.
+     * Update dates or details for a member plan.
+     */
+    public function update(Request $request, int $id)
+    {
+        $tenantId = $request->get('tenant_id');
+        $subscription = MemberPlan::where('tenant_id', $tenantId)->findOrFail($id);
+
+        $validated = $request->validate([
+            'startDate' => 'nullable',
+            'endDate' => 'nullable',
+            'starts_at' => 'nullable',
+            'expires_at' => 'nullable',
+            'status' => 'nullable|string',
+        ]);
+
+        $startsAt = $validated['startDate'] ?? $validated['starts_at'] ?? $subscription->starts_at;
+        $expiresAt = $validated['endDate'] ?? $validated['expires_at'] ?? $subscription->expires_at;
+
+        $status = $validated['status'] ?? null;
+        if (!$status && $expiresAt) {
+            $status = Carbon::parse($expiresAt)->isFuture() ? 'active' : 'expired';
+        }
+
+        $subscription->update([
+            'starts_at' => $startsAt ? Carbon::parse($startsAt) : $subscription->starts_at,
+            'expires_at' => $expiresAt ? Carbon::parse($expiresAt) : $subscription->expires_at,
+            'status' => $status ?? $subscription->status,
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'success' => true,
+            'message' => 'Subscription updated successfully.',
+            'data' => $subscription->fresh(['member', 'pricingPlan']),
+        ]);
+    }
+
+    /**
+     * Delete a member plan.
+     */
+    public function destroy(Request $request, int $id)
+    {
+        $tenantId = $request->get('tenant_id');
+        $subscription = MemberPlan::where('tenant_id', $tenantId)->findOrFail($id);
+        $subscription->delete();
+
+        return response()->json([
+            'status' => 'success',
+            'success' => true,
+            'message' => 'Member plan deleted successfully.',
+        ]);
+    }
+
+    /**
+     * Reconcile status of expired / active plans.
+     */
+    public function reconcileStatuses(Request $request)
+    {
+        $tenantId = $request->get('tenant_id');
+
+        $activatedCount = MemberPlan::where('tenant_id', $tenantId)
+            ->where('status', 'expired')
+            ->where('expires_at', '>', Carbon::now())
+            ->update(['status' => 'active']);
+
+        $expiredCount = MemberPlan::where('tenant_id', $tenantId)
+            ->where('status', 'active')
+            ->where('expires_at', '<=', Carbon::now())
+            ->update(['status' => 'expired']);
+
+        $totalCount = $activatedCount + $expiredCount;
+
+        return response()->json([
+            'status' => 'success',
+            'success' => true,
+            'message' => "Reconciled {$totalCount} member plan statuses ({$activatedCount} reactivated, {$expiredCount} marked expired).",
+        ]);
+    }
+
+    /**
+     * Bulk update dates for multiple member plans.
+     */
+    public function bulkUpdate(Request $request)
+    {
+        $tenantId = $request->get('tenant_id');
+        $validated = $request->validate([
+            'planIds' => 'required|array',
+            'startDate' => 'nullable',
+            'endDate' => 'nullable',
+        ]);
+
+        $updateData = [];
+        if (!empty($validated['startDate'])) {
+            $updateData['starts_at'] = Carbon::parse($validated['startDate']);
+        }
+        if (!empty($validated['endDate'])) {
+            $updateData['expires_at'] = Carbon::parse($validated['endDate']);
+            $updateData['status'] = Carbon::parse($validated['endDate'])->isFuture() ? 'active' : 'expired';
+        }
+
+        if (!empty($updateData)) {
+            MemberPlan::where('tenant_id', $tenantId)
+                ->whereIn('id', $validated['planIds'])
+                ->update($updateData);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'success' => true,
+            'message' => 'Bulk update completed successfully.',
+        ]);
+    }
+
+    /**
+     * Get expiring & expired subscriptions queue / renewals log.
      */
     public function renewals(Request $request)
     {
         $tenantId = $request->get('tenant_id');
-        $cutoffDate = Carbon::now()->addDays(7);
+        $page = (int) $request->input('page', 1);
+        $size = (int) $request->input('size', $request->input('per_page', 20));
 
-        $renewals = MemberPlan::with(['member', 'pricingPlan'])
-            ->where('tenant_id', $tenantId)
-            ->where(function ($q) use ($cutoffDate) {
+        $query = MemberPlan::with(['member', 'pricingPlan'])
+            ->where('tenant_id', $tenantId);
+
+        if ($request->filled('pricingPlanId')) {
+            $query->where('pricing_plan_id', $request->input('pricingPlanId'));
+        }
+
+        if ($request->filled('startDate')) {
+            $query->where('updated_at', '>=', Carbon::parse($request->input('startDate')));
+        }
+
+        if ($request->filled('endDate')) {
+            $query->where('updated_at', '<=', Carbon::parse($request->input('endDate')));
+        }
+
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+            $query->where(function ($sq) use ($search) {
+                $sq->whereHas('member', function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                      ->orWhere('email', 'like', "%{$search}%")
+                      ->orWhere('phone', 'like', "%{$search}%")
+                      ->orWhere('uid', 'like', "%{$search}%");
+                })->orWhereHas('pricingPlan', function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%");
+                });
+            });
+        } else if (!$request->filled('startDate') && !$request->filled('endDate') && !$request->filled('pricingPlanId')) {
+            // Default renewals queue: expiring within 7 days or expired
+            $cutoffDate = Carbon::now()->addDays(7);
+            $query->where(function ($q) use ($cutoffDate) {
                 $q->where('expires_at', '<=', $cutoffDate)
                   ->orWhere('status', 'expired');
-            })
-            ->latest('expires_at')
-            ->get();
+            });
+        }
+
+        $paginator = $query->latest('updated_at')->paginate($size, ['*'], 'page', $page);
 
         return response()->json([
+            'status' => 'success',
             'success' => true,
-            'data' => $renewals,
+            'data' => [
+                'content' => $paginator->items(),
+                'totalElements' => $paginator->total(),
+                'totalPages' => $paginator->lastPage(),
+                'currentPage' => $paginator->currentPage(),
+                'pageSize' => $paginator->perPage(),
+            ],
+            'content' => $paginator->items(),
+            'totalElements' => $paginator->total(),
         ]);
     }
 }

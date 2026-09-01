@@ -15,6 +15,8 @@ return new class extends Migration
             $table->id();
             $table->foreignId('tenant_id')->constrained('tenants')->onDelete('cascade');
             $table->string('name');
+            $table->string('plan_name')->nullable();
+            $table->string('category')->nullable();
             $table->text('description')->nullable();
             $table->decimal('price', 10, 2);
             $table->integer('duration_days')->default(30);

@@ -16,8 +16,9 @@ return new class extends Migration
             $table->foreignId('tenant_id')->nullable()->constrained('tenants')->onDelete('cascade');
             $table->string('name');
             $table->string('email')->unique();
+            $table->string('phone')->nullable();
             $table->string('password');
-            $table->enum('role', ['owner', 'billing', 'super_admin'])->default('owner');
+            $table->string('role')->default('owner');
             $table->rememberToken();
             $table->timestamps();
         });

@@ -75,7 +75,37 @@ class AuthController extends Controller
 
         $user = TenantUser::where('email', $validated['email'])->first();
 
-        if (!$user || !Hash::check($validated['password'], $user->password)) {
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid email address or password.',
+            ], 401);
+        }
+
+        $dbPassword = $user->password ?? '';
+        if (str_contains($dbPassword, '{bcrypt}')) {
+            $dbPassword = str_replace('{bcrypt}', '', $dbPassword);
+        }
+        if (str_starts_with($dbPassword, '$2a$')) {
+            $dbPassword = '$2y$' . substr($dbPassword, 4);
+            $user->update(['password' => $dbPassword]);
+        }
+
+        $passwordValid = false;
+        if (str_starts_with($dbPassword, '$2y$') || str_starts_with($dbPassword, '$2b$')) {
+            try {
+                $passwordValid = Hash::check($validated['password'], $dbPassword);
+            } catch (\Throwable $e) {
+                $passwordValid = false;
+            }
+        }
+
+        if (!$passwordValid && ($validated['password'] === $dbPassword || md5($validated['password']) === $dbPassword)) {
+            $passwordValid = true;
+            $user->update(['password' => Hash::make($validated['password'])]);
+        }
+
+        if (!$passwordValid) {
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid email address or password.',
@@ -88,7 +118,7 @@ class AuthController extends Controller
             'success' => true,
             'message' => 'Logged in successfully.',
             'data' => [
-                'user' => $user->load('tenant'),
+                'user' => $this->resolveUserWithTenant($user),
                 'token' => $token,
             ]
         ]);
@@ -101,7 +131,46 @@ class AuthController extends Controller
     {
         return response()->json([
             'success' => true,
-            'data' => $request->user()->load('tenant.features', 'tenant.theme', 'tenant.license'),
+            'data' => $this->resolveUserWithTenant($request->user()),
+        ]);
+    }
+
+    /**
+     * Resolve user model with attached tenant info
+     */
+    private function resolveUserWithTenant($user)
+    {
+        $user->load('tenant.features', 'tenant.theme', 'tenant.license');
+        $userData = $user->toArray();
+
+        if (!$user->tenant) {
+            $tenantUser = \Illuminate\Support\Facades\DB::table('tenant_users')->where('email', $user->email)->first();
+            if ($tenantUser && $tenantUser->tenant_id) {
+                $tenant = \App\Models\Tenant::with(['features', 'theme', 'license'])->find($tenantUser->tenant_id);
+            } else {
+                $tenant = \App\Models\Tenant::with(['features', 'theme', 'license'])->first();
+            }
+            if ($tenant) {
+                $userData['tenant'] = $tenant;
+                $userData['tenant_id'] = $tenant->id;
+            }
+        }
+
+        return $userData;
+    }
+
+    /**
+     * Log out authenticated user (revoke current token)
+     */
+    public function logout(Request $request)
+    {
+        if ($request->user()) {
+            $request->user()->currentAccessToken()->delete();
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Logged out successfully.',
         ]);
     }
 }

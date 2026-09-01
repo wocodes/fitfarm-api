@@ -41,11 +41,11 @@ class DashboardController extends Controller
 
         // Revenue Calculations
         $revenueThisMonth = Transaction::where('created_at', '>=', $startOfMonth)
-            ->where('status', 'approved')
+            ->whereIn('status', ['successful', 'approved'])
             ->sum('net_amount');
 
         $revenueLastMonth = Transaction::whereBetween('created_at', [$startOfLastMonth, $endOfLastMonth])
-            ->where('status', 'approved')
+            ->whereIn('status', ['successful', 'approved'])
             ->sum('net_amount');
 
         $revenuePercentageChange = 0.0;

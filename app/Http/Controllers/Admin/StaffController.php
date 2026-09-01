@@ -16,39 +16,96 @@ class StaffController extends Controller
     {
         $tenantId = $request->get('tenant_id');
 
-        $staff = TenantUser::where('tenant_id', $tenantId)
+        $staff = TenantUser::when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
             ->latest()
-            ->get();
+            ->get()
+            ->map(function ($u) use ($tenantId) {
+                setPermissionsTeamId($u->tenant_id ?? $tenantId ?? 1);
+                $u->permissions = $u->getAllPermissions()->pluck('name')->toArray();
+                return $u;
+            });
 
         return response()->json([
+            'status' => 'success',
             'success' => true,
             'data' => $staff,
         ]);
     }
 
     /**
-     * Create / Invite a new staff user.
+     * Fetch master system roles and permissions from database.
+     */
+    public function listPermissions(Request $request)
+    {
+        $permissions = \Spatie\Permission\Models\Permission::all()->map(function ($p) {
+            return [
+                'id' => $p->id,
+                'key' => $p->name,
+                'label' => $p->label ?? $p->name,
+                'description' => $p->description ?? '',
+                'category' => $p->category ?? 'General',
+            ];
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'success' => true,
+            'data' => $permissions,
+        ]);
+    }
+
+    /**
+     * Create / Register a new admin user.
      */
     public function store(Request $request)
     {
         $tenantId = $request->get('tenant_id');
 
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:tenant_users,email',
-            'password' => 'required|string|min:8',
-            'role' => 'nullable|string|in:admin,receptionist,trainer',
+            'name' => 'nullable|string|max:255',
+            'fullName' => 'nullable|string|max:255',
+            'email' => 'nullable|email',
+            'username' => 'nullable|string',
+            'phone' => 'nullable|string',
+            'phoneNumber' => 'nullable|string',
+            'gender' => 'nullable|string',
+            'password' => 'required|string|min:6',
+            'role' => 'nullable|string',
+            'roles' => 'nullable|array',
+            'permissions' => 'nullable|array',
         ]);
+
+        $name = $validated['fullName'] ?? $validated['name'] ?? 'Admin User';
+        $email = $validated['email'] ?? $validated['username'] ?? strtolower(str_replace(' ', '', $name)) . '@gym.com';
+        $phone = $validated['phone'] ?? $validated['phoneNumber'] ?? null;
+        $role = !empty($validated['roles']) ? $validated['roles'][0] : ($validated['role'] ?? 'admin');
 
         $staff = TenantUser::create([
             'tenant_id' => $tenantId,
-            'name' => $validated['name'],
-            'email' => $validated['email'],
+            'name' => $name,
+            'email' => $email,
+            'phone' => $phone,
+            'gender' => $validated['gender'] ?? 'Male',
             'password' => Hash::make($validated['password']),
-            'role' => $validated['role'] ?? 'receptionist',
+            'role' => $role,
         ]);
 
+        setPermissionsTeamId($staff->tenant_id ?? $tenantId ?? 1);
+
+        $initialPerms = $validated['permissions'] ?? ['MANAGE_MEMBERS', 'MANAGE_CHECKINS', 'VIEW_TRANSACTIONS'];
+        $staff->syncPermissions($initialPerms);
+
+        $roleObj = \Spatie\Permission\Models\Role::firstOrCreate([
+            'name' => $role,
+            'guard_name' => 'sanctum',
+            'tenant_id' => $staff->tenant_id ?? $tenantId ?? 1,
+        ]);
+        $staff->assignRole($roleObj);
+
+        $staff->permissions = $staff->getAllPermissions()->pluck('name')->toArray();
+
         return response()->json([
+            'status' => 'success',
             'success' => true,
             'message' => 'Staff user created successfully.',
             'data' => $staff,
@@ -56,23 +113,159 @@ class StaffController extends Controller
     }
 
     /**
-     * Update staff role.
+     * Update admin user details.
      */
-    public function updateRole(Request $request, int $id)
+    public function update(Request $request, $id)
     {
         $tenantId = $request->get('tenant_id');
-        $staff = TenantUser::where('tenant_id', $tenantId)->findOrFail($id);
+        $staff = TenantUser::when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
+            ->where(fn($q) => $q->where('id', $id)->orWhere('email', $id))
+            ->firstOrFail();
 
         $validated = $request->validate([
-            'role' => 'required|string|in:owner,admin,receptionist,trainer',
+            'fullName' => 'nullable|string|max:255',
+            'name' => 'nullable|string|max:255',
+            'phoneNumber' => 'nullable|string',
+            'phone' => 'nullable|string',
+            'gender' => 'nullable|string',
+            'role' => 'nullable|string',
         ]);
 
-        $staff->update(['role' => $validated['role']]);
+        $updateData = [];
+        if (isset($validated['fullName']) || isset($validated['name'])) {
+            $updateData['name'] = $validated['fullName'] ?? $validated['name'];
+        }
+        if (isset($validated['phoneNumber']) || isset($validated['phone'])) {
+            $updateData['phone'] = $validated['phoneNumber'] ?? $validated['phone'];
+        }
+        if (isset($validated['gender'])) {
+            $updateData['gender'] = $validated['gender'];
+        }
+        if (isset($validated['role'])) {
+            $updateData['role'] = $validated['role'];
+            setPermissionsTeamId($staff->tenant_id ?? $tenantId ?? 1);
+            $roleObj = \Spatie\Permission\Models\Role::firstOrCreate([
+                'name' => $validated['role'],
+                'guard_name' => 'sanctum',
+                'tenant_id' => $staff->tenant_id ?? $tenantId ?? 1,
+            ]);
+            $staff->syncRoles([$roleObj]);
+        }
+
+        $staff->update($updateData);
+
+        setPermissionsTeamId($staff->tenant_id ?? $tenantId ?? 1);
+        $staff->permissions = $staff->getAllPermissions()->pluck('name')->toArray();
 
         return response()->json([
+            'status' => 'success',
             'success' => true,
-            'message' => "Staff role updated to {$validated['role']}.",
+            'message' => 'Admin details updated successfully.',
             'data' => $staff,
+        ]);
+    }
+
+    /**
+     * Delete admin user.
+     */
+    public function destroy(Request $request, $id)
+    {
+        $tenantId = $request->get('tenant_id');
+        $staff = TenantUser::when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
+            ->where(fn($q) => $q->where('id', $id)->orWhere('email', $id))
+            ->firstOrFail();
+
+        $staff->delete();
+
+        return response()->json([
+            'status' => 'success',
+            'success' => true,
+            'message' => 'Admin user deleted successfully.',
+        ]);
+    }
+
+    /**
+     * Reset password for admin user.
+     */
+    public function resetPassword(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'password' => 'nullable|string|min:6',
+            'newPassword' => 'nullable|string|min:6',
+        ]);
+
+        $newPassword = $validated['newPassword'] ?? $validated['password'];
+
+        $tenantId = $request->get('tenant_id');
+        $staff = TenantUser::when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
+            ->where(fn($q) => $q->where('id', $id)->orWhere('email', $id)->orWhere('name', $id))
+            ->firstOrFail();
+
+        $staff->update([
+            'password' => Hash::make($newPassword),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'success' => true,
+            'message' => 'Password reset successfully.',
+        ]);
+    }
+
+    /**
+     * Update admin user permissions.
+     */
+    public function updatePermissions(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'permissions' => 'required|array',
+        ]);
+
+        $tenantId = $request->get('tenant_id');
+        $staff = TenantUser::when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
+            ->where(fn($q) => $q->where('id', $id)->orWhere('email', $id))
+            ->firstOrFail();
+
+        setPermissionsTeamId($staff->tenant_id ?? $tenantId ?? 1);
+        $staff->syncPermissions($validated['permissions']);
+        $staff->permissions = $staff->getAllPermissions()->pluck('name')->toArray();
+
+        return response()->json([
+            'status' => 'success',
+            'success' => true,
+            'message' => 'Permissions updated successfully.',
+            'data' => $staff,
+        ]);
+    }
+
+    /**
+     * Bulk assign default permissions to regular admins.
+     */
+    public function bulkPermissions(Request $request)
+    {
+        $tenantId = $request->get('tenant_id') ?? 1;
+
+        $defaultPermissions = [
+            'MANAGE_MEMBERS',
+            'MANAGE_CHECKINS',
+            'VIEW_TRANSACTIONS',
+            'MANAGE_PRICING',
+        ];
+
+        $staffList = TenantUser::when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
+            ->where('role', '!=', 'super_admin')
+            ->where('role', '!=', 'ROLE_SUPER_ADMIN')
+            ->get();
+
+        foreach ($staffList as $staff) {
+            setPermissionsTeamId($staff->tenant_id ?? $tenantId);
+            $staff->syncPermissions($defaultPermissions);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'success' => true,
+            'message' => 'Default permissions assigned to all regular admins.',
         ]);
     }
 }

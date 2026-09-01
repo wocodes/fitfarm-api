@@ -28,7 +28,23 @@ class Member extends Model
         'genotype',
         'emergency_contact_name',
         'emergency_contact_phone',
+        'emergency_contact_relationship',
+        'occupation',
+        'nin',
+        'blood_pressure',
+        'medical_conditions',
+        'other_ailments',
+        'hmo_provider',
+        'hmo_number',
+        'next_of_kin_name',
+        'next_of_kin_phone',
+        'next_of_kin_relationship',
+        'next_of_kin_address',
         'status',
+        'registration_source',
+        'registration_status',
+        'biometric_hash',
+        'registration_expiry_date',
     ];
 
     protected static function booted()
@@ -43,6 +59,51 @@ class Member extends Model
     public function activePlan()
     {
         return $this->hasOne(MemberPlan::class)->where('status', 'active')->latestOfMany();
+    }
+
+    public function latestPlan()
+    {
+        return $this->hasOne(MemberPlan::class)->latestOfMany();
+    }
+
+    public function activePaidPlans()
+    {
+        return $this->hasMany(MemberPlan::class)
+            ->whereIn('status', ['active', 'paused'])
+            ->whereHas('pricingPlan', function ($q) {
+                $q->whereNotIn(\Illuminate\Support\Facades\DB::raw('LOWER(name)'), ['registration', 'system-rg', 'system-fr', 'registration fee', 'system']);
+            });
+    }
+
+    public function activePaidPlan()
+    {
+        return $this->hasOne(MemberPlan::class)
+            ->ofMany(['id' => 'max'], function ($q) {
+                $q->where('status', 'active')
+                  ->whereHas('pricingPlan', function ($pq) {
+                      $pq->whereNotIn(\Illuminate\Support\Facades\DB::raw('LOWER(name)'), ['registration', 'system-rg', 'system-fr', 'registration fee', 'system']);
+                  });
+            });
+    }
+
+    public function latestPaidPlan()
+    {
+        return $this->hasOne(MemberPlan::class)
+            ->ofMany(['id' => 'max'], function ($q) {
+                $q->whereHas('pricingPlan', function ($pq) {
+                    $pq->whereNotIn(\Illuminate\Support\Facades\DB::raw('LOWER(name)'), ['registration', 'system-rg', 'system-fr', 'registration fee', 'system']);
+                });
+            });
+    }
+
+    public function registrationPlan()
+    {
+        return $this->hasOne(MemberPlan::class)
+            ->ofMany(['id' => 'max'], function ($q) {
+                $q->whereHas('pricingPlan', function ($pq) {
+                    $pq->whereIn(\Illuminate\Support\Facades\DB::raw('LOWER(name)'), ['registration', 'system-rg', 'system-fr', 'registration fee']);
+                });
+            });
     }
 
     public function plans()

@@ -16,11 +16,13 @@ class ResolveTenant
     {
         $tenant = null;
 
-        // 1. Check HTTP header X-Tenant-UUID or X-Tenant-Slug
+        // 1. Check HTTP header X-Tenant-UUID, X-Tenant-Slug, or X-Tenant-ID
         if ($tenantUuid = $request->header('X-Tenant-UUID')) {
             $tenant = Tenant::where('uuid', $tenantUuid)->first();
         } elseif ($tenantSlug = $request->header('X-Tenant-Slug')) {
             $tenant = Tenant::where('slug', $tenantSlug)->first();
+        } elseif ($tenantId = $request->header('X-Tenant-ID') ?? $request->get('tenant_id')) {
+            $tenant = Tenant::find($tenantId);
         }
 
         // 2. Check authenticated user's tenant if not resolved yet
@@ -31,8 +33,9 @@ class ResolveTenant
         }
 
         if ($tenant) {
-            // Bind resolved tenant instance into application container
+            // Bind resolved tenant instance into application container and request
             app()->instance('tenant', $tenant);
+            $request->merge(['tenant_id' => $tenant->id]);
         }
 
         return $next($request);

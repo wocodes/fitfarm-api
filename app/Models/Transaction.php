@@ -23,6 +23,8 @@ class Transaction extends Model
         'payment_method',
         'reference',
         'status',
+        'recorded_by',
+        'notes',
     ];
 
     protected $casts = [

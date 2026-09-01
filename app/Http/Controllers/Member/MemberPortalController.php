@@ -73,7 +73,37 @@ class MemberPortalController extends Controller
 
         $member = Member::where('email', $validated['email'])->first();
 
-        if (!$member || !Hash::check($validated['password'], $member->password)) {
+        if (!$member) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid email address or password.',
+            ], 401);
+        }
+
+        $dbPassword = $member->password ?? '';
+        if (str_contains($dbPassword, '{bcrypt}')) {
+            $dbPassword = str_replace('{bcrypt}', '', $dbPassword);
+        }
+        if (str_starts_with($dbPassword, '$2a$')) {
+            $dbPassword = '$2y$' . substr($dbPassword, 4);
+            $member->update(['password' => $dbPassword]);
+        }
+
+        $passwordValid = false;
+        if (str_starts_with($dbPassword, '$2y$') || str_starts_with($dbPassword, '$2b$')) {
+            try {
+                $passwordValid = Hash::check($validated['password'], $dbPassword);
+            } catch (\Throwable $e) {
+                $passwordValid = false;
+            }
+        }
+
+        if (!$passwordValid && ($validated['password'] === $dbPassword || md5($validated['password']) === $dbPassword)) {
+            $passwordValid = true;
+            $member->update(['password' => Hash::make($validated['password'])]);
+        }
+
+        if (!$passwordValid) {
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid email address or password.',

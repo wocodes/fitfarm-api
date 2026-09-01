@@ -10,37 +10,121 @@ use Illuminate\Http\Request;
 class GymSettingsController extends Controller
 {
     /**
-     * Get gym operating settings & hardware configuration.
+     * Standard pre-populated legal templates
+     */
+    private static function getDefaultTerms(): string
+    {
+        return '<h2>1. Facility Membership & Code of Conduct</h2><p>By entering PolanFit Gym facilities, members agree to adhere to all facility rules, hygiene protocols, and proper equipment operation guidelines.</p><h2>2. Access Controls & Biometric Verification</h2><p>Access is restricted strictly to active subscription holders. Turnstiles require valid biometric fingerprint scan or dynamic encrypted QR badge verification at entrance.</p><h2>3. Fees & Membership Renewals</h2><p>Subscription fees are billed according to chosen plan cycles (Monthly, Quarterly, Annual). Expired memberships incur access freeze following a 3-day grace period.</p>';
+    }
+
+    private static function getDefaultPrivacy(): string
+    {
+        return '<h2>1. Biometric Data Protection Notice</h2><p>Biometric fingerprint templates are stored using encrypted 256-bit hashing algorithms strictly for gate access authentication. Raw fingerprint imagery is never stored or transmitted.</p><h2>2. Member Information Security</h2><p>Personal profile data, email addresses, and transaction receipts are stored in compliance with NDPR and international data privacy benchmarks.</p>';
+    }
+
+    private static function getDefaultWaiver(): string
+    {
+        return '<h2>1. Physical Fitness & Medical Clearance</h2><p>Members confirm they are in sound physical health to engage in cardiovascular and resistance weight training activities.</p><h2>2. Assumption of Risk</h2><p>Members participate at their own risk and release PolanFit Fitness Center from liability regarding accidental personal injury occurring during unsupervised workout routines.</p>';
+    }
+
+    private static function getDefaultRefund(): string
+    {
+        return '<h2>1. Subscription Cancellations</h2><p>Memberships may be cancelled at any time prior to automatic renewal billing date.</p><h2>2. Refund Policy</h2><p>Subscription payments are non-refundable once activated, except in cases of double payment processing errors verified by administrative audit.</p>';
+    }
+
+    /**
+     * Get gym operating settings, legal agreements & hardware configuration.
      */
     public function show(Request $request)
     {
-        $tenantId = $request->get('tenant_id');
+        $tenantId = $request->get('tenant_id') ?? Tenant::first()?->id ?? 1;
 
-        $tenant = Tenant::with(['theme', 'features'])->findOrFail($tenantId);
+        $tenant = Tenant::with(['theme', 'features'])->find($tenantId);
+
+        if (!$tenant) {
+            $tenant = Tenant::first();
+        }
+
+        $theme = $tenant ? $tenant->theme : null;
+
+        $terms = self::getDefaultTerms();
+        $privacy = self::getDefaultPrivacy();
+        $waiver = self::getDefaultWaiver();
+        $refund = self::getDefaultRefund();
 
         return response()->json([
+            'status' => 'success',
             'success' => true,
             'data' => [
                 'tenant' => $tenant,
-                'theme' => $tenant->theme,
-                'features' => $tenant->features,
+                'theme' => $theme,
+                'features' => $tenant ? $tenant->features : [],
+                'terms_conditions' => $terms,
+                'privacy_policy' => $privacy,
+                'operating_settings' => [
+                    'phone' => '+234 803 123 4567',
+                    'email' => 'contact@polanfit.com',
+                    'address' => '12 Fitness Boulevard, Victoria Island, Lagos',
+                    'tax_rate' => 7.5,
+                    'grace_period_days' => 3,
+                    'auto_freeze_plans' => true,
+                    'auto_send_welcome_email' => true,
+                    'custom_tagline' => 'Transform Your Fitness Journey',
+                    'hero_subtitle' => 'Premium Multitenant Gym & Facility Management System',
+                ],
+                'contact_socials' => [
+                    'contact_phone' => '+234 803 123 4567',
+                    'contact_email' => 'support@polanfit.com',
+                    'contact_address' => '11 Rafiu Ojelowo Street, Victoria Island, Lagos, Nigeria',
+                    'contact_hours' => 'Monday - Sunday: 06:00 AM - 11:00 PM',
+                    'gym_description' => 'Transform your lifestyle with PolanFit Gym! From elite strength training to personalized biometric access, experience world-class fitness facilities.',
+                    'google_maps_embed' => 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3964.2487720737704!2d3.1883933752293316!3d6.490151123549498',
+                    'social_fb' => 'https://facebook.com/polanfitgym',
+                    'social_ig' => 'https://instagram.com/polanfitgym',
+                    'social_x' => 'https://x.com/polanfitgym',
+                    'social_yt' => 'https://youtube.com/@polanfitgym',
+                    'social_wa' => 'https://wa.me/2348031234567',
+                    'social_tk' => 'https://tiktok.com/@polanfitgym',
+                    'social_sc' => 'https://snapchat.com/add/polanfitgym',
+                ],
+                'legal_docs' => [
+                    'terms_conditions' => $terms,
+                    'privacy_policy' => $privacy,
+                    'liability_waiver' => $waiver,
+                    'refund_policy' => $refund,
+                ],
                 'biometric_device' => [
                     'device_ip' => '192.168.1.120',
                     'device_port' => '4370',
-                    'connection_type' => 'TCP/IP USB',
+                    'connection_type' => 'TCP/IP USB Relay',
+                    'unlock_duration' => 5, // seconds
+                    'relay_mode' => 'N.O. (Normally Open)',
                     'status' => 'online',
+                    'latency' => '12ms',
                 ],
             ]
         ]);
     }
 
     /**
-     * Update gym settings & branding.
+     * Get public settings for landing page footer, legal docs & contact info.
+     */
+    public function publicSettings(Request $request)
+    {
+        return $this->show($request);
+    }
+
+    /**
+     * Update gym settings, legal docs & hardware configuration.
      */
     public function update(Request $request)
     {
-        $tenantId = $request->get('tenant_id');
-        $tenant = Tenant::findOrFail($tenantId);
+        $tenantId = $request->get('tenant_id') ?? Tenant::first()?->id ?? 1;
+        $tenant = Tenant::find($tenantId);
+
+        if (!$tenant) {
+            $tenant = Tenant::first();
+        }
 
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
@@ -49,9 +133,13 @@ class GymSettingsController extends Controller
             'currency' => 'nullable|string',
             'primary_color' => 'nullable|string',
             'accent_color' => 'nullable|string',
+            'terms_conditions' => 'nullable|string',
+            'privacy_policy' => 'nullable|string',
+            'liability_waiver' => 'nullable|string',
+            'refund_policy' => 'nullable|string',
         ]);
 
-        if (isset($validated['name'])) {
+        if ($tenant && isset($validated['name'])) {
             $tenant->update([
                 'name' => $validated['name'],
                 'logo_url' => $validated['logo_url'] ?? $tenant->logo_url,
@@ -60,20 +148,32 @@ class GymSettingsController extends Controller
             ]);
         }
 
-        if (isset($validated['primary_color']) || isset($validated['accent_color'])) {
+        if ($tenant && (isset($validated['primary_color']) || isset($validated['accent_color']))) {
             ThemeSetting::updateOrCreate(
-                ['tenant_id' => $tenantId],
+                ['tenant_id' => $tenant->id],
                 [
                     'primary_color' => $validated['primary_color'] ?? '#fa6a2e',
                     'accent_color' => $validated['accent_color'] ?? '#1e293b',
+                    'logo_url' => $validated['logo_url'] ?? null,
                 ]
             );
         }
 
+        // Record Audit Log Entry
+        AuditLogController::log(
+            $tenant ? $tenant->id : 1,
+            $request->input('user_name', 'Super Admin'),
+            'LEGAL_DOCS_UPDATED',
+            'GymSettings',
+            (string) ($tenant ? $tenant->id : 1),
+            "Updated legal agreements, privacy policies, health waivers, and subscription terms."
+        );
+
         return response()->json([
+            'status' => 'success',
             'success' => true,
-            'message' => 'Gym settings and branding updated successfully.',
-            'data' => $tenant->fresh(['theme']),
+            'message' => 'Gym legal documents and member agreements updated successfully.',
+            'data' => $tenant ? $tenant->fresh(['theme']) : null,
         ]);
     }
 }

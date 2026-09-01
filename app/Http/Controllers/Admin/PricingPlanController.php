@@ -16,7 +16,9 @@ class PricingPlanController extends Controller
         $tenantId = $request->get('tenant_id');
 
         $plans = PricingPlan::where('tenant_id', $tenantId)
-            ->latest()
+            ->whereNotIn(\Illuminate\Support\Facades\DB::raw('LOWER(name)'), ['free', 'system-fr', 'system-free'])
+            ->whereNotIn(\Illuminate\Support\Facades\DB::raw('LOWER(COALESCE(plan_name, ""))'), ['free', 'system-fr', 'system-free'])
+            ->orderBy('id', 'asc')
             ->get();
 
         return response()->json([
@@ -59,22 +61,34 @@ class PricingPlanController extends Controller
     /**
      * Update the specified pricing plan.
      */
-    public function update(Request $request, int $id)
+    public function update(Request $request, $id)
     {
         $tenantId = $request->get('tenant_id');
-        $plan = PricingPlan::where('tenant_id', $tenantId)->findOrFail($id);
+        $plan = PricingPlan::where('tenant_id', $tenantId)
+            ->where(function ($q) use ($id) {
+                $q->where('id', $id)
+                  ->orWhere('plan_name', (string) $id);
+            })
+            ->first();
 
-        $validated = $request->validate([
-            'name' => 'sometimes|required|string|max:255',
-            'description' => 'nullable|string',
-            'price' => 'sometimes|required|numeric|min:0',
-            'duration_days' => 'sometimes|required|integer|min:1',
-            'is_active' => 'nullable|boolean',
+        if (!$plan) {
+            $plan = PricingPlan::where('tenant_id', $tenantId)->findOrFail((int) $id);
+        }
+
+        $price = $request->input('price', $request->input('subscriptionFee', $plan->price));
+        $isActive = $request->has('active') ? $request->boolean('active') : ($request->has('is_active') ? $request->boolean('is_active') : $plan->is_active);
+        $durationDays = $request->input('duration_days', $request->input('durationDays', $plan->duration_days));
+
+        $plan->update([
+            'name' => $request->input('name', $plan->name),
+            'description' => $request->input('description', $plan->description),
+            'price' => $price,
+            'duration_days' => $durationDays,
+            'is_active' => $isActive,
         ]);
 
-        $plan->update($validated);
-
         return response()->json([
+            'status' => 'success',
             'success' => true,
             'message' => 'Membership pricing plan updated successfully.',
             'data' => $plan,
