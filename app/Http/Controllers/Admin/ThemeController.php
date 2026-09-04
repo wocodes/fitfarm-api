@@ -11,11 +11,23 @@ class ThemeController extends Controller
     /**
      * Get theme settings for current tenant
      */
-    public function show()
+    public function show(Request $request)
     {
-        $tenant = app('tenant');
+        $tenantId = 1;
+        if (app()->bound('tenant') && app('tenant')) {
+            $tenantId = app('tenant')->id;
+        } elseif ($request->user() && $request->user()->tenant_id) {
+            $tenantId = $request->user()->tenant_id;
+        } else {
+            $slug = $request->query('tenant');
+            if ($slug) {
+                $t = \App\Models\Tenant::where('slug', $slug)->first();
+                if ($t) $tenantId = $t->id;
+            }
+        }
+
         $theme = ThemeSetting::firstOrCreate(
-            ['tenant_id' => $tenant->id],
+            ['tenant_id' => $tenantId],
             [
                 'primary_color' => '#fa6a2e',
                 'accent_color' => '#1e293b',
@@ -37,7 +49,12 @@ class ThemeController extends Controller
      */
     public function update(Request $request)
     {
-        $tenant = app('tenant');
+        $tenantId = 1;
+        if (app()->bound('tenant') && app('tenant')) {
+            $tenantId = app('tenant')->id;
+        } elseif ($request->user() && $request->user()->tenant_id) {
+            $tenantId = $request->user()->tenant_id;
+        }
 
         $validated = $request->validate([
             'primary_color' => 'required|string|max:20',
@@ -50,7 +67,7 @@ class ThemeController extends Controller
         ]);
 
         $theme = ThemeSetting::updateOrCreate(
-            ['tenant_id' => $tenant->id],
+            ['tenant_id' => $tenantId],
             $validated
         );
 
