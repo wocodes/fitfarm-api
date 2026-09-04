@@ -15,6 +15,7 @@ use App\Http\Controllers\Admin\PricingPlanController;
 use App\Http\Controllers\Admin\StaffAttendanceController;
 use App\Http\Controllers\Admin\StaffController;
 use App\Http\Controllers\Admin\SubscriptionController;
+use App\Http\Controllers\Admin\TerminalController;
 use App\Http\Controllers\Admin\ThemeController;
 use App\Http\Controllers\Admin\TransactionController;
 use App\Http\Controllers\Central\AuthController;
@@ -142,19 +143,32 @@ Route::prefix('v1')->group(function () {
             return app(\App\Http\Controllers\Admin\TransactionController::class)->updateStatus($req, $id);
         });
 
+        // Front-Desk Terminals & Access Security
+        Route::get('/terminals', [TerminalController::class, 'index']);
+        Route::get('/terminals/check-current', [TerminalController::class, 'checkCurrent']);
+        Route::post('/terminals/enroll', [TerminalController::class, 'enroll']);
+        Route::post('/terminals/toggle-lock', [TerminalController::class, 'toggleLock']);
+        Route::delete('/terminals/{identifier}', [TerminalController::class, 'destroy']);
+
         // Attendance & Kiosk & QR Locations
         Route::get('/check-ins', [CheckInController::class, 'index']);
         Route::get('/checkins/all', [CheckInController::class, 'index']);
         Route::get('/admin/checkins/all', [CheckInController::class, 'index']);
-        Route::post('/check-ins', [CheckInController::class, 'checkIn']);
-        Route::post('/checkins/simulate', [CheckInController::class, 'simulate']);
-        Route::post('/admin/checkins/simulate', [CheckInController::class, 'simulate']);
-        Route::post('/checkins/simulate-fingerprint', [CheckInController::class, 'simulateFingerprint']);
-        Route::post('/admin/checkins/simulate-fingerprint', [CheckInController::class, 'simulateFingerprint']);
-        Route::post('/check-in/identify-fingerprint', [CheckInController::class, 'simulateFingerprint']);
-        Route::post('/admin/checkins/{identifier}/cancel', [CheckInController::class, 'cancelSession']);
-        Route::post('/admin/checkins/cancel-all-active', [CheckInController::class, 'cancelAllActive']);
-        Route::delete('/admin/checkins/clear-all', [CheckInController::class, 'clearAll']);
+
+        // Terminal Lock Protected Actions (Staff restricted to enrolled desk devices; Owners bypass)
+        Route::middleware(['terminal'])->group(function () {
+            Route::post('/check-ins', [CheckInController::class, 'checkIn']);
+            Route::post('/checkins/simulate', [CheckInController::class, 'simulate']);
+            Route::post('/admin/checkins/simulate', [CheckInController::class, 'simulate']);
+            Route::post('/checkins/simulate-fingerprint', [CheckInController::class, 'simulateFingerprint']);
+            Route::post('/admin/checkins/simulate-fingerprint', [CheckInController::class, 'simulateFingerprint']);
+            Route::post('/check-in/identify-fingerprint', [CheckInController::class, 'simulateFingerprint']);
+            Route::post('/admin/checkins/{identifier}/cancel', [CheckInController::class, 'cancelSession']);
+            Route::post('/admin/checkins/cancel-all-active', [CheckInController::class, 'cancelAllActive']);
+            Route::delete('/admin/checkins/clear-all', [CheckInController::class, 'clearAll']);
+            Route::post('/staff-attendance/clock-in', [StaffAttendanceController::class, 'clockIn']);
+            Route::post('/staff-attendance/{id}/clock-out', [StaffAttendanceController::class, 'clockOut']);
+        });
         
         Route::get('/checkin/locations', [GymLocationController::class, 'index']);
         Route::get('/checkin/generate-link', [GymLocationController::class, 'generateLink']);
@@ -168,8 +182,6 @@ Route::prefix('v1')->group(function () {
         Route::get('/staff/attendance', [StaffAttendanceController::class, 'index']);
         Route::get('/staff/attendance-qr', [StaffAttendanceController::class, 'generateQR']);
         Route::get('/staff-attendance/qr', [StaffAttendanceController::class, 'generateQR']);
-        Route::post('/staff-attendance/clock-in', [StaffAttendanceController::class, 'clockIn']);
-        Route::post('/staff-attendance/{id}/clock-out', [StaffAttendanceController::class, 'clockOut']);
 
         // Accounts & Audit Trail
         Route::get('/accounts', [BankAccountController::class, 'index']);

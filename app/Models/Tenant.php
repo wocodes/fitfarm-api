@@ -21,11 +21,13 @@ class Tenant extends Model
         'plan_tier',
         'status',
         'paystack_subaccount_code',
+        'enforce_terminal_lock',
         'trial_ends_at',
         'setup_completed_at',
     ];
 
     protected $casts = [
+        'enforce_terminal_lock' => 'boolean',
         'trial_ends_at' => 'datetime',
         'setup_completed_at' => 'datetime',
     ];
@@ -62,6 +64,11 @@ class Tenant extends Model
     public function pricingPlans()
     {
         return $this->hasMany(PricingPlan::class);
+    }
+
+    public function terminals()
+    {
+        return $this->hasMany(Terminal::class);
     }
 
     public function hasFeature(string $featureKey): bool

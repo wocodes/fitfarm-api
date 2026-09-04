@@ -112,6 +112,40 @@ class AuthController extends Controller
             ], 401);
         }
 
+        // Check if gym owner has enforced front-desk terminal lock for staff
+        $role = strtolower($user->role ?? '');
+        $tenantUser = \App\Models\TenantUser::where('email', $user->email)->first();
+        $tenantId = $user->tenant_id ?? $tenantUser?->tenant_id;
+        $tenant = $tenantId ? \App\Models\Tenant::find($tenantId) : null;
+
+        if ($tenant && $tenant->enforce_terminal_lock && !in_array($role, ['owner', 'super_admin', 'superadmin'])) {
+            $terminalToken = $request->header('X-Terminal-Token');
+            $terminalValid = false;
+            if ($terminalToken) {
+                $hash = hash('sha256', $terminalToken);
+                $terminal = \App\Models\Terminal::where('tenant_id', $tenant->id)
+                    ->where('token_hash', $hash)
+                    ->where('status', 'active')
+                    ->first();
+                if ($terminal) {
+                    $terminalValid = true;
+                    $terminal->update([
+                        'last_seen_at' => now(),
+                        'last_ip_address' => $request->ip(),
+                    ]);
+                }
+            }
+
+            if (!$terminalValid) {
+                return response()->json([
+                    'success' => false,
+                    'status' => 'error',
+                    'error_code' => 'UNAUTHORIZED_TERMINAL_DEVICE',
+                    'message' => 'Staff access is restricted to registered front-desk terminals. Please sign in from an authorized desk computer or contact the gym owner.',
+                ], 403);
+            }
+        }
+
         $token = $user->createToken('central-auth-token')->plainTextToken;
 
         return response()->json([
