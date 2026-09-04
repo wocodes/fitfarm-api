@@ -8,6 +8,7 @@ use App\Models\Member;
 use App\Models\MemberPlan;
 use App\Models\PricingPlan;
 use App\Models\Tenant;
+use App\Models\Transaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
@@ -209,5 +210,145 @@ class MemberPortalController extends Controller
                 'check_in_history' => $checkIns,
             ]
         ]);
+    }
+
+    /**
+     * Get member's current active workout session (if checked in).
+     */
+    public function activeSession(Request $request)
+    {
+        $member = $request->user();
+        $session = AttendanceLog::where('member_id', $member->id)
+            ->where('is_active_session', true)
+            ->latest('check_in_time')
+            ->first();
+
+        if (!$session) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'isCheckedIn' => false,
+                    'session' => null,
+                ],
+            ]);
+        }
+
+        $checkInTime = Carbon::parse($session->check_in_time);
+        $elapsedSeconds = max(0, $checkInTime->diffInSeconds(now()));
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'isCheckedIn' => true,
+                'session' => [
+                    'id' => $session->id,
+                    'check_in_time' => $session->check_in_time,
+                    'elapsed_seconds' => $elapsedSeconds,
+                    'method' => $session->method ?? 'qr',
+                ],
+            ],
+        ]);
+    }
+
+    /**
+     * Check out from current active workout session.
+     */
+    public function checkout(Request $request)
+    {
+        $member = $request->user();
+        $session = AttendanceLog::where('member_id', $member->id)
+            ->where('is_active_session', true)
+            ->latest('check_in_time')
+            ->first();
+
+        if (!$session) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No active workout session found to check out.',
+            ], 404);
+        }
+
+        $now = now();
+        $durationMinutes = Carbon::parse($session->check_in_time)->diffInMinutes($now);
+
+        $session->update([
+            'is_active_session' => false,
+            'check_out_time' => $now,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Checked out successfully! You worked out for {$durationMinutes} minutes.",
+            'data' => [
+                'session_id' => $session->id,
+                'check_out_time' => $now->toIso8601String(),
+                'duration_minutes' => $durationMinutes,
+            ],
+        ]);
+    }
+
+    /**
+     * Process & record member subscription plan purchase (e.g. after Paystack verification).
+     */
+    public function purchasePlan(Request $request)
+    {
+        $member = $request->user();
+
+        $validated = $request->validate([
+            'pricing_plan_id' => 'required|exists:pricing_plans,id',
+            'payment_reference' => 'required|string',
+            'amount' => 'required|numeric|min:0',
+            'channel' => 'nullable|string',
+        ]);
+
+        $plan = PricingPlan::findOrFail($validated['pricing_plan_id']);
+        $tenantId = $plan->tenant_id ?? $member->tenant_id ?? 1;
+
+        // 1. Record transaction
+        $transaction = Transaction::create([
+            'tenant_id' => $tenantId,
+            'member_id' => $member->id,
+            'pricing_plan_id' => $plan->id,
+            'reference' => $validated['payment_reference'],
+            'amount' => $validated['amount'],
+            'currency' => $plan->currency ?? 'NGN',
+            'type' => 'subscription',
+            'channel' => $validated['channel'] ?? 'paystack',
+            'status' => 'successful',
+            'description' => "Online renewal for {$plan->name}",
+            'paid_at' => now(),
+        ]);
+
+        // 2. Compute subscription dates (extend if existing active plan)
+        $durationDays = $plan->duration_days ?: 30;
+        $existingPlan = MemberPlan::where('member_id', $member->id)
+            ->where('status', 'active')
+            ->where('expires_at', '>', now())
+            ->latest('expires_at')
+            ->first();
+
+        $startsAt = $existingPlan ? $existingPlan->expires_at : now();
+        $expiresAt = (clone $startsAt)->addDays($durationDays);
+
+        $memberPlan = MemberPlan::create([
+            'tenant_id' => $tenantId,
+            'member_id' => $member->id,
+            'pricing_plan_id' => $plan->id,
+            'starts_at' => $startsAt,
+            'expires_at' => $expiresAt,
+            'status' => 'active',
+        ]);
+
+        // Ensure member status is active
+        $member->update(['status' => 'active']);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Subscription to {$plan->name} activated successfully! Valid until {$expiresAt->format('M d, Y')}.",
+            'data' => [
+                'member_plan' => $memberPlan->load('pricingPlan'),
+                'transaction' => $transaction,
+            ],
+        ], 201);
     }
 }

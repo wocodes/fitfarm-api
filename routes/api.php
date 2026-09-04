@@ -65,6 +65,9 @@ Route::prefix('v1')->group(function () {
 
     Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/member/profile', [MemberPortalController::class, 'profile']);
+        Route::get('/member/active-session', [MemberPortalController::class, 'activeSession']);
+        Route::post('/member/checkout', [MemberPortalController::class, 'checkout']);
+        Route::post('/member/plans/purchase', [MemberPortalController::class, 'purchasePlan']);
     });
 
     // 1. Central Platform Public Endpoints
