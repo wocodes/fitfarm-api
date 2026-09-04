@@ -7,6 +7,7 @@ use App\Models\AttendanceLog;
 use App\Models\Member;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 
@@ -145,6 +146,8 @@ class CheckInController extends Controller
             'is_active_session' => true,
         ]);
 
+        $this->invalidateDashboardCache($request);
+
         return response()->json([
             'status' => 'success',
             'success' => true,
@@ -192,6 +195,8 @@ class CheckInController extends Controller
             'is_active_session' => true,
         ]);
 
+        $this->invalidateDashboardCache($request);
+
         return response()->json([
             'status' => 'success',
             'success' => true,
@@ -228,6 +233,8 @@ class CheckInController extends Controller
             'check_out_time' => now(),
         ]);
 
+        $this->invalidateDashboardCache($request);
+
         return response()->json([
             'status' => 'success',
             'success' => true,
@@ -246,6 +253,8 @@ class CheckInController extends Controller
                 'check_out_time' => now(),
             ]);
 
+        $this->invalidateDashboardCache($request);
+
         return response()->json([
             'status' => 'success',
             'success' => true,
@@ -260,10 +269,23 @@ class CheckInController extends Controller
     {
         AttendanceLog::query()->delete();
 
+        $this->invalidateDashboardCache($request);
+
         return response()->json([
             'status' => 'success',
             'success' => true,
             'message' => 'All attendance history cleared.',
         ]);
+    }
+
+    /**
+     * Invalidate dashboard statistics cache on check-in mutations
+     */
+    private function invalidateDashboardCache(Request $request)
+    {
+        $tenantSlug = $request->header('X-Tenant-Slug', 'default');
+        foreach (['weekly', 'monthly', 'yearly'] as $range) {
+            Cache::forget("admin_dashboard_stats_{$tenantSlug}_{$range}");
+        }
     }
 }

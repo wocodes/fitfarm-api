@@ -9,6 +9,7 @@ use App\Models\MemberPlan;
 use App\Models\Transaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
@@ -20,14 +21,18 @@ class DashboardController extends Controller
     public function stats(Request $request)
     {
         $range = strtolower($request->query('range', 'weekly'));
-        $today = Carbon::today();
-        $startOfWeek = Carbon::now()->startOfWeek();
-        $startOfMonth = Carbon::now()->startOfMonth();
-        $startOfLastMonth = Carbon::now()->subMonth()->startOfMonth();
-        $endOfLastMonth = Carbon::now()->subMonth()->endOfMonth();
+        $tenantSlug = $request->header('X-Tenant-Slug', 'default');
+        $cacheKey = "admin_dashboard_stats_{$tenantSlug}_{$range}";
 
-        // Member Metrics
-        $totalMembers = Member::count();
+        $payload = Cache::remember($cacheKey, 15, function () use ($range) {
+            $today = Carbon::today();
+            $startOfWeek = Carbon::now()->startOfWeek();
+            $startOfMonth = Carbon::now()->startOfMonth();
+            $startOfLastMonth = Carbon::now()->subMonth()->startOfMonth();
+            $endOfLastMonth = Carbon::now()->subMonth()->endOfMonth();
+
+            // Member Metrics
+            $totalMembers = Member::count();
         $newMembersThisWeek = Member::where('created_at', '>=', $startOfWeek)->count();
         $activeMembersCount = MemberPlan::where('status', 'active')->distinct('member_id')->count('member_id');
         if ($activeMembersCount === 0) {
@@ -76,7 +81,7 @@ class DashboardController extends Controller
                     'sessionType' => $checkInTime->hour < 12 ? 'MORNING' : 'EVENING',
                     'checkInTime' => $checkInTime->format('h:i A'),
                     'endTime' => $endTime->format('h:i A'),
-                    'remainingMinutes' => $remaining > 0 ? $remaining : rand(10, 25),
+                    'remainingMinutes' => max(0, $remaining),
                 ];
             });
 
@@ -96,13 +101,33 @@ class DashboardController extends Controller
                 ];
             });
 
-        // Activity Chart Data (Mon-Sun counts for weekly)
-        $activityLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        // Activity Chart Data (Dynamic for weekly, monthly, yearly)
+        $activityLabels = [];
         $activityData = [];
-        for ($i = 0; $i < 7; $i++) {
-            $dayDate = $startOfWeek->copy()->addDays($i);
-            $count = AttendanceLog::whereDate('created_at', $dayDate)->count();
-            $activityData[] = $count;
+
+        if ($range === 'monthly') {
+            $daysInMonth = $today->daysInMonth;
+            for ($i = 1; $i <= $daysInMonth; $i++) {
+                $dayDate = $startOfMonth->copy()->addDays($i - 1);
+                $activityLabels[] = (string) $i;
+                $activityData[] = AttendanceLog::whereDate('created_at', $dayDate)->count();
+            }
+        } elseif ($range === 'yearly') {
+            $months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            $currentYear = Carbon::now()->year;
+            foreach ($months as $mIdx => $mName) {
+                $activityLabels[] = $mName;
+                $activityData[] = AttendanceLog::whereYear('created_at', $currentYear)
+                    ->whereMonth('created_at', $mIdx + 1)
+                    ->count();
+            }
+        } else { // weekly default
+            $days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            for ($i = 0; $i < 7; $i++) {
+                $dayDate = $startOfWeek->copy()->addDays($i);
+                $activityLabels[] = $days[$i];
+                $activityData[] = AttendanceLog::whereDate('created_at', $dayDate)->count();
+            }
         }
 
         // Leaderboard (Top 5 active members by check-in count)
@@ -111,7 +136,7 @@ class DashboardController extends Controller
             ->take(5)
             ->get()
             ->map(function ($member, $index) {
-                $checkIns = $member->attendance_logs_count ?: rand(8, 20);
+                $checkIns = (int) $member->attendance_logs_count;
                 return [
                     'rank' => $index + 1,
                     'name' => "{$member->first_name} " . substr($member->last_name, 0, 1) . '.',
@@ -121,19 +146,16 @@ class DashboardController extends Controller
                 ];
             });
 
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Dashboard stats retrieved successfully',
-            'data' => [
-                'totalMembers' => $totalMembers ?: 786,
-                'newMembersThisWeek' => $newMembersThisWeek ?: 32,
-                'checkInsToday' => $checkInsToday ?: 85,
-                'checkInsThisWeek' => $checkInsThisWeek ?: 623,
-                'activeMembersCount' => $activeMembersCount ?: 1124,
-                'expiredMembersCount' => $expiredMembersCount ?: 82,
-                'totalRevenueThisMonth' => $revenueThisMonth ?: 17423724,
-                'totalRevenueLastMonth' => $revenueLastMonth ?: 15252024,
-                'revenuePercentageChange' => $revenuePercentageChange ?: 14.2,
+            return [
+                'totalMembers' => (int) $totalMembers,
+                'newMembersThisWeek' => (int) $newMembersThisWeek,
+                'checkInsToday' => (int) $checkInsToday,
+                'checkInsThisWeek' => (int) $checkInsThisWeek,
+                'activeMembersCount' => (int) $activeMembersCount,
+                'expiredMembersCount' => (int) $expiredMembersCount,
+                'totalRevenueThisMonth' => (float) $revenueThisMonth,
+                'totalRevenueLastMonth' => (float) $revenueLastMonth,
+                'revenuePercentageChange' => (float) $revenuePercentageChange,
                 'expiringSoon' => $expiringSoon,
                 'recentTransactions' => $recentTransactions,
                 'activityChartData' => [
@@ -141,7 +163,13 @@ class DashboardController extends Controller
                     'data' => $activityData,
                 ],
                 'leaderboard' => $leaderboard,
-            ]
+            ];
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Dashboard stats retrieved successfully',
+            'data' => $payload,
         ]);
     }
 }
