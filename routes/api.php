@@ -51,6 +51,9 @@ Route::prefix('v1')->group(function () {
     Route::post('/campaigns/email-blast', [CampaignController::class, 'sendEmailBlast']);
     Route::post('/campaigns/send-email', [CampaignController::class, 'sendEmailBlast']);
     // Public & Direct Audit Trail & System Backup Endpoints
+    Route::get('/theme', [ThemeController::class, 'show']);
+    Route::get('/public/theme', [ThemeController::class, 'show']);
+    Route::post('/theme', [ThemeController::class, 'update']);
     Route::get('/settings', [GymSettingsController::class, 'show']);
     Route::get('/public/settings', [GymSettingsController::class, 'publicSettings']);
     Route::post('/settings', [GymSettingsController::class, 'update']);
