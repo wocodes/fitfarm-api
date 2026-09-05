@@ -19,6 +19,7 @@ class CmsController extends Controller
         'testimonials',
         'faqs',
         'contact_socials',
+        'section_visibility',
     ];
 
     /**

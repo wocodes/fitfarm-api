@@ -51,6 +51,7 @@ class MemberPortalController extends Controller
             'testimonials' => $tenant->getCmsSection('testimonials'),
             'faqs' => $tenant->getCmsSection('faqs'),
             'contact_socials' => $tenant->getCmsSection('contact_socials'),
+            'section_visibility' => $tenant->getCmsSection('section_visibility'),
         ];
 
         return response()->json([

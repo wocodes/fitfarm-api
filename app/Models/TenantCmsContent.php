@@ -561,6 +561,20 @@ class TenantCmsContent extends Model
                     'social_wa' => 'https://wa.me/?text=Hello%20PolanFit%20Front%20Desk,%20I%20have%20an%20inquiry%20regarding%20memberships.',
                 ];
 
+            case 'section_visibility':
+                return [
+                    'hero' => true,
+                    'pulse' => true,
+                    'how_it_works' => true,
+                    'amenities' => true,
+                    'classes' => true,
+                    'bmi' => true,
+                    'trainers' => true,
+                    'plans' => true,
+                    'testimonials' => true,
+                    'faqs' => true,
+                ];
+
             default:
                 return [];
         }
