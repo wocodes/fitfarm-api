@@ -43,6 +43,16 @@ class MemberPortalController extends Controller
             ->where('is_active', true)
             ->get();
 
+        $cms = [
+            'hero' => $tenant->getCmsSection('hero'),
+            'amenities' => $tenant->getCmsSection('amenities'),
+            'classes' => $tenant->getCmsSection('classes'),
+            'trainers' => $tenant->getCmsSection('trainers'),
+            'testimonials' => $tenant->getCmsSection('testimonials'),
+            'faqs' => $tenant->getCmsSection('faqs'),
+            'contact_socials' => $tenant->getCmsSection('contact_socials'),
+        ];
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -52,12 +62,16 @@ class MemberPortalController extends Controller
                     'logo_url' => $tenant->logo_url,
                     'currency' => $tenant->currency ?? 'NGN',
                     'timezone' => $tenant->timezone ?? 'Africa/Lagos',
+                    'address' => $cms['contact_socials']['address'] ?? '14 Admiralty Way, Lekki Phase 1, Lagos, Nigeria',
+                    'phone' => $cms['contact_socials']['phone'] ?? '+234 812 345 6789',
+                    'email' => $cms['contact_socials']['email'] ?? 'frontdesk@polanfit.com',
                 ],
                 'theme' => $tenant->theme ?? [
                     'primary_color' => '#fa6a2e',
                     'accent_color' => '#1e293b',
                 ],
                 'pricing_plans' => $plans,
+                'cms' => $cms,
             ]
         ]);
     }

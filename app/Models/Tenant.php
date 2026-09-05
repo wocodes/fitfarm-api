@@ -71,6 +71,20 @@ class Tenant extends Model
         return $this->hasMany(Terminal::class);
     }
 
+    public function cmsContents()
+    {
+        return $this->hasMany(TenantCmsContent::class);
+    }
+
+    public function getCmsSection(string $sectionKey): array
+    {
+        $record = $this->cmsContents()->where('section_key', $sectionKey)->first();
+        if ($record && !empty($record->content)) {
+            return $record->content;
+        }
+        return TenantCmsContent::getDefaultSectionContent($sectionKey, $this);
+    }
+
     public function hasFeature(string $featureKey): bool
     {
         return $this->features()->where('feature_key', $featureKey)->where('enabled', true)->exists();

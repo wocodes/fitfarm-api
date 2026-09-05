@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\BackupController;
 use App\Http\Controllers\Admin\BiometricController;
 use App\Http\Controllers\Admin\CampaignController;
 use App\Http\Controllers\Admin\CheckInController;
+use App\Http\Controllers\Admin\CmsController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\GymLocationController;
 use App\Http\Controllers\Admin\GymSettingsController;
@@ -57,6 +58,13 @@ Route::prefix('v1')->group(function () {
     Route::get('/settings', [GymSettingsController::class, 'show']);
     Route::get('/public/settings', [GymSettingsController::class, 'publicSettings']);
     Route::post('/settings', [GymSettingsController::class, 'update']);
+    // Website CMS & Homepage Content Endpoints
+    Route::get('/cms', [CmsController::class, 'index']);
+    Route::get('/public/cms', [CmsController::class, 'index']);
+    Route::get('/cms/{section}', [CmsController::class, 'show']);
+    Route::post('/cms/upload', [CmsController::class, 'uploadMedia']);
+    Route::post('/cms/{section}', [CmsController::class, 'updateSection']);
+    Route::put('/cms/{section}', [CmsController::class, 'updateSection']);
     Route::get('/audit-logs', [AuditLogController::class, 'auditLogs']);
     Route::get('/audit-logs/export', [AuditLogController::class, 'export']);
     Route::get('/backups', [BackupController::class, 'index']);
