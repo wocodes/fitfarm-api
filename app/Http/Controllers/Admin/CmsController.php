@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Tenant;
 use App\Models\TenantCmsContent;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -27,13 +26,12 @@ class CmsController extends Controller
      */
     public function index(Request $request)
     {
-        $tenantId = $request->get('tenant_id') ?? Tenant::first()?->id ?? 1;
-        $tenant = Tenant::find($tenantId) ?? Tenant::first();
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
 
-        if (!$tenant) {
+        if (! $tenant) {
             return response()->json([
                 'success' => false,
-                'message' => 'No active tenant found.',
+                'message' => 'Gym not found.',
             ], 404);
         }
 
@@ -57,21 +55,27 @@ class CmsController extends Controller
      */
     public function show(Request $request, string $section)
     {
-        if (!in_array($section, $this->validSections)) {
+        if (! in_array($section, $this->validSections)) {
             return response()->json([
                 'success' => false,
                 'message' => "Invalid CMS section: {$section}",
             ], 422);
         }
 
-        $tenantId = $request->get('tenant_id') ?? Tenant::first()?->id ?? 1;
-        $tenant = Tenant::find($tenantId) ?? Tenant::first();
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
+
+        if (! $tenant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gym not found.',
+            ], 404);
+        }
 
         return response()->json([
             'success' => true,
             'data' => [
                 'section' => $section,
-                'content' => $tenant ? $tenant->getCmsSection($section) : [],
+                'content' => $tenant->getCmsSection($section),
             ],
         ]);
     }
@@ -81,20 +85,19 @@ class CmsController extends Controller
      */
     public function updateSection(Request $request, string $section)
     {
-        if (!in_array($section, $this->validSections)) {
+        if (! in_array($section, $this->validSections)) {
             return response()->json([
                 'success' => false,
                 'message' => "Invalid CMS section: {$section}",
             ], 422);
         }
 
-        $tenantId = $request->get('tenant_id') ?? Tenant::first()?->id ?? 1;
-        $tenant = Tenant::find($tenantId) ?? Tenant::first();
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
 
-        if (!$tenant) {
+        if (! $tenant) {
             return response()->json([
                 'success' => false,
-                'message' => 'No tenant found.',
+                'message' => 'Gym not found.',
             ], 404);
         }
 
@@ -129,11 +132,20 @@ class CmsController extends Controller
      */
     public function uploadMedia(Request $request)
     {
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
+
+        if (! $tenant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gym not found.',
+            ], 404);
+        }
+
         $request->validate([
-            'file' => 'required|image|mimes:jpeg,png,jpg,webp,svg|max:5120',
+            'file' => 'required|image|mimes:jpeg,png,jpg,webp|max:5120',
         ]);
 
-        if (!$request->hasFile('file')) {
+        if (! $request->hasFile('file')) {
             return response()->json([
                 'success' => false,
                 'message' => 'No image file uploaded.',
@@ -141,10 +153,10 @@ class CmsController extends Controller
         }
 
         $file = $request->file('file');
-        $fileName = Str::random(24) . '.' . $file->getClientOriginalExtension();
-        $path = $file->storeAs('public/cms', $fileName);
+        $fileName = Str::random(24).'.'.$file->extension();
+        $path = $file->storeAs('public/cms/'.$tenant->slug, $fileName);
 
-        $url = url(Storage::url('cms/' . $fileName));
+        $url = url(Storage::url('cms/'.$tenant->slug.'/'.$fileName));
 
         return response()->json([
             'success' => true,

@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\TenantUser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 class StaffController extends Controller
 {
@@ -16,12 +18,13 @@ class StaffController extends Controller
     {
         $tenantId = $request->get('tenant_id');
 
-        $staff = TenantUser::when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
+        $staff = TenantUser::when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
             ->latest()
             ->get()
             ->map(function ($u) use ($tenantId) {
                 setPermissionsTeamId($u->tenant_id ?? $tenantId ?? 1);
                 $u->permissions = $u->getAllPermissions()->pluck('name')->toArray();
+
                 return $u;
             });
 
@@ -37,7 +40,7 @@ class StaffController extends Controller
      */
     public function listPermissions(Request $request)
     {
-        $permissions = \Spatie\Permission\Models\Permission::all()->map(function ($p) {
+        $permissions = Permission::all()->map(function ($p) {
             return [
                 'id' => $p->id,
                 'key' => $p->name,
@@ -76,9 +79,17 @@ class StaffController extends Controller
         ]);
 
         $name = $validated['fullName'] ?? $validated['name'] ?? 'Admin User';
-        $email = $validated['email'] ?? $validated['username'] ?? strtolower(str_replace(' ', '', $name)) . '@gym.com';
+        $email = $validated['email'] ?? $validated['username'] ?? strtolower(str_replace(' ', '', $name)).'@gym.com';
         $phone = $validated['phone'] ?? $validated['phoneNumber'] ?? null;
-        $role = !empty($validated['roles']) ? $validated['roles'][0] : ($validated['role'] ?? 'admin');
+        $role = ! empty($validated['roles']) ? $validated['roles'][0] : ($validated['role'] ?? 'admin');
+
+        if (str_contains(strtolower((string) $role), 'super')) {
+            return response()->json([
+                'status' => 'error',
+                'success' => false,
+                'message' => 'Platform super-admin roles cannot be created inside a gym tenant.',
+            ], 422);
+        }
 
         $staff = TenantUser::create([
             'tenant_id' => $tenantId,
@@ -95,7 +106,7 @@ class StaffController extends Controller
         $initialPerms = $validated['permissions'] ?? ['MANAGE_MEMBERS', 'MANAGE_CHECKINS', 'VIEW_TRANSACTIONS'];
         $staff->syncPermissions($initialPerms);
 
-        $roleObj = \Spatie\Permission\Models\Role::firstOrCreate([
+        $roleObj = Role::firstOrCreate([
             'name' => $role,
             'guard_name' => 'sanctum',
             'tenant_id' => $staff->tenant_id ?? $tenantId ?? 1,
@@ -118,8 +129,8 @@ class StaffController extends Controller
     public function update(Request $request, $id)
     {
         $tenantId = $request->get('tenant_id');
-        $staff = TenantUser::when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
-            ->where(fn($q) => $q->where('id', $id)->orWhere('email', $id))
+        $staff = TenantUser::when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->where(fn ($q) => $q->where('id', $id)->orWhere('email', $id))
             ->firstOrFail();
 
         $validated = $request->validate([
@@ -142,9 +153,17 @@ class StaffController extends Controller
             $updateData['gender'] = $validated['gender'];
         }
         if (isset($validated['role'])) {
+            if (str_contains(strtolower((string) $validated['role']), 'super')) {
+                return response()->json([
+                    'status' => 'error',
+                    'success' => false,
+                    'message' => 'Platform super-admin roles cannot be assigned inside a gym tenant.',
+                ], 422);
+            }
+
             $updateData['role'] = $validated['role'];
             setPermissionsTeamId($staff->tenant_id ?? $tenantId ?? 1);
-            $roleObj = \Spatie\Permission\Models\Role::firstOrCreate([
+            $roleObj = Role::firstOrCreate([
                 'name' => $validated['role'],
                 'guard_name' => 'sanctum',
                 'tenant_id' => $staff->tenant_id ?? $tenantId ?? 1,
@@ -171,8 +190,8 @@ class StaffController extends Controller
     public function destroy(Request $request, $id)
     {
         $tenantId = $request->get('tenant_id');
-        $staff = TenantUser::when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
-            ->where(fn($q) => $q->where('id', $id)->orWhere('email', $id))
+        $staff = TenantUser::when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->where(fn ($q) => $q->where('id', $id)->orWhere('email', $id))
             ->firstOrFail();
 
         $staff->delete();
@@ -197,8 +216,8 @@ class StaffController extends Controller
         $newPassword = $validated['newPassword'] ?? $validated['password'];
 
         $tenantId = $request->get('tenant_id');
-        $staff = TenantUser::when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
-            ->where(fn($q) => $q->where('id', $id)->orWhere('email', $id)->orWhere('name', $id))
+        $staff = TenantUser::when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->where(fn ($q) => $q->where('id', $id)->orWhere('email', $id)->orWhere('name', $id))
             ->firstOrFail();
 
         $staff->update([
@@ -213,6 +232,39 @@ class StaffController extends Controller
     }
 
     /**
+     * Update an admin user's role.
+     */
+    public function updateRole(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'role' => 'required|string|max:50',
+        ]);
+
+        if (str_contains(strtolower($validated['role']), 'super')) {
+            return response()->json([
+                'status' => 'error',
+                'success' => false,
+                'message' => 'Platform super-admin roles cannot be assigned inside a gym tenant.',
+            ], 422);
+        }
+
+        $tenantId = app('tenant')->id;
+
+        $staff = TenantUser::where('tenant_id', $tenantId)
+            ->whereKey($id)
+            ->firstOrFail();
+
+        $staff->update(['role' => $validated['role']]);
+
+        return response()->json([
+            'status' => 'success',
+            'success' => true,
+            'message' => 'Staff role updated successfully.',
+            'data' => $staff,
+        ]);
+    }
+
+    /**
      * Update admin user permissions.
      */
     public function updatePermissions(Request $request, $id)
@@ -222,8 +274,8 @@ class StaffController extends Controller
         ]);
 
         $tenantId = $request->get('tenant_id');
-        $staff = TenantUser::when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
-            ->where(fn($q) => $q->where('id', $id)->orWhere('email', $id))
+        $staff = TenantUser::when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->where(fn ($q) => $q->where('id', $id)->orWhere('email', $id))
             ->firstOrFail();
 
         setPermissionsTeamId($staff->tenant_id ?? $tenantId ?? 1);
@@ -252,7 +304,7 @@ class StaffController extends Controller
             'MANAGE_PRICING',
         ];
 
-        $staffList = TenantUser::when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
+        $staffList = TenantUser::when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
             ->where('role', '!=', 'super_admin')
             ->where('role', '!=', 'ROLE_SUPER_ADMIN')
             ->get();

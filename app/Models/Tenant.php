@@ -79,14 +79,51 @@ class Tenant extends Model
     public function getCmsSection(string $sectionKey): array
     {
         $record = $this->cmsContents()->where('section_key', $sectionKey)->first();
-        if ($record && !empty($record->content)) {
+        if ($record && ! empty($record->content)) {
             return $record->content;
         }
+
         return TenantCmsContent::getDefaultSectionContent($sectionKey, $this);
     }
 
     public function hasFeature(string $featureKey): bool
     {
         return $this->features()->where('feature_key', $featureKey)->where('enabled', true)->exists();
+    }
+
+    /**
+     * Public member portal URL for this tenant.
+     * Prefers MEMBER_APP_URL override; otherwise derives {slug}.{PLATFORM_DOMAIN}.
+     */
+    public function memberPortalUrl(): string
+    {
+        $base = (string) config('fitcloud.app_urls.member', '');
+
+        if ($base === '') {
+            $platform = (string) config('fitcloud.platform_domain', '');
+            $base = $platform !== ''
+                ? 'https://'.$this->slug.'.'.trim($platform, '.')
+                : 'http://localhost:3002';
+        }
+
+        return rtrim($base, '/').'?tenant='.$this->slug;
+    }
+
+    /**
+     * Gym owner admin console URL for this tenant.
+     * Prefers ADMIN_APP_URL override; otherwise derives admin.{PLATFORM_DOMAIN}.
+     */
+    public function adminConsoleUrl(): string
+    {
+        $base = (string) config('fitcloud.app_urls.admin', '');
+
+        if ($base === '') {
+            $platform = (string) config('fitcloud.platform_domain', '');
+            $base = $platform !== ''
+                ? 'https://admin.'.trim($platform, '.')
+                : 'http://localhost:3001';
+        }
+
+        return rtrim($base, '/').'?tenant='.$this->slug;
     }
 }

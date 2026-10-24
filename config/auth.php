@@ -1,6 +1,7 @@
 <?php
 
-use App\Models\User;
+use App\Models\Member;
+use App\Models\TenantUser;
 
 return [
 
@@ -46,6 +47,10 @@ return [
             'driver' => 'sanctum',
             'provider' => 'users',
         ],
+        'member' => [
+            'driver' => 'sanctum',
+            'provider' => 'members',
+        ],
     ],
 
     /*
@@ -68,7 +73,12 @@ return [
     'providers' => [
         'users' => [
             'driver' => 'eloquent',
-            'model' => env('AUTH_MODEL', \App\Models\TenantUser::class),
+            'model' => env('AUTH_MODEL', TenantUser::class),
+        ],
+
+        'members' => [
+            'driver' => 'eloquent',
+            'model' => Member::class,
         ],
 
         // 'users' => [

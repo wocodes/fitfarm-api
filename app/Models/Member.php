@@ -4,12 +4,14 @@ namespace App\Models;
 
 use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\HasApiTokens;
 
-class Member extends Model
+class Member extends Authenticatable
 {
-    use HasFactory, BelongsToTenant;
+    use BelongsToTenant, HasApiTokens, HasFactory;
 
     protected $fillable = [
         'uuid',
@@ -18,6 +20,7 @@ class Member extends Model
         'last_name',
         'email',
         'phone',
+        'password',
         'gender',
         'date_of_birth',
         'address',
@@ -56,6 +59,20 @@ class Member extends Model
         });
     }
 
+    protected $hidden = [
+        'password',
+        'remember_token',
+        'fingerprint_template',
+        'biometric_hash',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'password' => 'hashed',
+        ];
+    }
+
     public function activePlan()
     {
         return $this->hasOne(MemberPlan::class)->where('status', 'active')->latestOfMany();
@@ -71,7 +88,7 @@ class Member extends Model
         return $this->hasMany(MemberPlan::class)
             ->whereIn('status', ['active', 'paused'])
             ->whereHas('pricingPlan', function ($q) {
-                $q->whereNotIn(\Illuminate\Support\Facades\DB::raw('LOWER(name)'), ['registration', 'system-rg', 'system-fr', 'registration fee', 'system']);
+                $q->whereNotIn(DB::raw('LOWER(name)'), ['registration', 'system-rg', 'system-fr', 'registration fee', 'system']);
             });
     }
 
@@ -80,9 +97,9 @@ class Member extends Model
         return $this->hasOne(MemberPlan::class)
             ->ofMany(['id' => 'max'], function ($q) {
                 $q->where('status', 'active')
-                  ->whereHas('pricingPlan', function ($pq) {
-                      $pq->whereNotIn(\Illuminate\Support\Facades\DB::raw('LOWER(name)'), ['registration', 'system-rg', 'system-fr', 'registration fee', 'system']);
-                  });
+                    ->whereHas('pricingPlan', function ($pq) {
+                        $pq->whereNotIn(DB::raw('LOWER(name)'), ['registration', 'system-rg', 'system-fr', 'registration fee', 'system']);
+                    });
             });
     }
 
@@ -91,7 +108,7 @@ class Member extends Model
         return $this->hasOne(MemberPlan::class)
             ->ofMany(['id' => 'max'], function ($q) {
                 $q->whereHas('pricingPlan', function ($pq) {
-                    $pq->whereNotIn(\Illuminate\Support\Facades\DB::raw('LOWER(name)'), ['registration', 'system-rg', 'system-fr', 'registration fee', 'system']);
+                    $pq->whereNotIn(DB::raw('LOWER(name)'), ['registration', 'system-rg', 'system-fr', 'registration fee', 'system']);
                 });
             });
     }
@@ -101,7 +118,7 @@ class Member extends Model
         return $this->hasOne(MemberPlan::class)
             ->ofMany(['id' => 'max'], function ($q) {
                 $q->whereHas('pricingPlan', function ($pq) {
-                    $pq->whereIn(\Illuminate\Support\Facades\DB::raw('LOWER(name)'), ['registration', 'system-rg', 'system-fr', 'registration fee']);
+                    $pq->whereIn(DB::raw('LOWER(name)'), ['registration', 'system-rg', 'system-fr', 'registration fee']);
                 });
             });
     }
@@ -128,7 +145,8 @@ class Member extends Model
 
     public function getFormattedDisplayNameAttribute(): string
     {
-        $lastInitial = $this->last_name ? ' ' . mb_substr($this->last_name, 0, 1) . '.' : '';
-        return $this->first_name . $lastInitial;
+        $lastInitial = $this->last_name ? ' '.mb_substr($this->last_name, 0, 1).'.' : '';
+
+        return $this->first_name.$lastInitial;
     }
 }

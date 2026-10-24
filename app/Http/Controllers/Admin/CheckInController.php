@@ -8,8 +8,6 @@ use App\Models\Member;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Str;
-use Illuminate\Support\Facades\DB;
 
 class CheckInController extends Controller
 {
@@ -26,20 +24,20 @@ class CheckInController extends Controller
         $startDate = $request->input('startDate', $request->input('start_date'));
         $endDate = $request->input('endDate', $request->input('end_date'));
 
-        $query = AttendanceLog::with('member.activeSubscription.plan')
+        $query = AttendanceLog::with('member.activePlan.pricingPlan')
             ->latest('check_in_time');
 
-        if (!empty($search)) {
+        if (! empty($search)) {
             $query->whereHas('member', function ($q) use ($search) {
                 $q->where('first_name', 'like', "%{$search}%")
-                  ->orWhere('last_name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%")
-                  ->orWhere('phone', 'like', "%{$search}%")
-                  ->orWhere('member_number', 'like', "%{$search}%");
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%")
+                    ->orWhere('member_number', 'like', "%{$search}%");
             });
         }
 
-        if (!empty($status)) {
+        if (! empty($status)) {
             $upperStatus = strtoupper($status);
             if ($upperStatus === 'ACTIVE') {
                 $query->where('is_active_session', true);
@@ -48,11 +46,11 @@ class CheckInController extends Controller
             }
         }
 
-        if (!empty($startDate)) {
+        if (! empty($startDate)) {
             $query->whereDate('check_in_time', '>=', $startDate);
         }
 
-        if (!empty($endDate)) {
+        if (! empty($endDate)) {
             $query->whereDate('check_in_time', '<=', $endDate);
         }
 
@@ -63,9 +61,9 @@ class CheckInController extends Controller
             $member = $log->member;
             $checkIn = $log->check_in_time ? Carbon::parse($log->check_in_time) : now();
             $checkOut = $log->check_out_time ? Carbon::parse($log->check_out_time) : null;
-            
+
             $spent = $checkOut ? $checkIn->diffInMinutes($checkOut) : $checkIn->diffInMinutes(now());
-            
+
             // Expected session length 120 mins
             $endTime = $checkIn->copy()->addHours(2);
             $remaining = $log->is_active_session ? max(0, (int) now()->diffInMinutes($endTime, false)) : 0;
@@ -118,6 +116,50 @@ class CheckInController extends Controller
     }
 
     /**
+     * Process a member check-in from the admin console or kiosk.
+     */
+    public function checkIn(Request $request)
+    {
+        $validated = $request->validate([
+            'member_id' => 'required_without:member_uuid|nullable',
+            'member_uuid' => 'required_without:member_id|nullable|string',
+            'method' => 'nullable|in:manual,qr_code,fingerprint,geofence',
+        ]);
+
+        $member = Member::where(function ($query) use ($validated) {
+            if (! empty($validated['member_uuid'])) {
+                $query->where('uuid', $validated['member_uuid']);
+            } else {
+                $query->where('id', $validated['member_id']);
+            }
+        })->firstOrFail();
+
+        $checkIn = AttendanceLog::create([
+            'member_id' => $member->id,
+            'check_in_time' => Carbon::now(),
+            'method' => $validated['method'] ?? 'manual',
+            'is_active_session' => true,
+        ]);
+
+        $this->invalidateDashboardCache($request);
+
+        return response()->json([
+            'success' => true,
+            'message' => "{$member->formatted_display_name} checked in successfully!",
+            'data' => [
+                'check_in' => $checkIn,
+                'member' => [
+                    'id' => $member->id,
+                    'uuid' => $member->uuid,
+                    'display_name' => $member->formatted_display_name,
+                    'full_name' => "{$member->first_name} {$member->last_name}",
+                    'photo_url' => $member->photo_url,
+                ],
+            ],
+        ], 201);
+    }
+
+    /**
      * Process / Simulate member check-in
      */
     public function simulate(Request $request)
@@ -126,11 +168,11 @@ class CheckInController extends Controller
         $checkInTime = $request->input('checkInTime', now());
         $method = $request->input('method', 'ADMIN_SIMULATION');
 
-        $member = Member::where('uuid', $memberUid)
-            ->orWhere('id', $memberUid)
-            ->first();
+        $member = Member::where(function ($query) use ($memberUid) {
+            $query->where('uuid', $memberUid)->orWhere('id', $memberUid);
+        })->first();
 
-        if (!$member) {
+        if (! $member) {
             return response()->json([
                 'status' => 'error',
                 'success' => false,
@@ -169,12 +211,13 @@ class CheckInController extends Controller
     {
         $memberUid = $request->input('memberUid', $request->input('member_id'));
 
-        $member = Member::with('activeSubscription.plan')
-            ->where('uuid', $memberUid)
-            ->orWhere('id', $memberUid)
+        $member = Member::with('activePlan.pricingPlan')
+            ->where(function ($query) use ($memberUid) {
+                $query->where('uuid', $memberUid)->orWhere('id', $memberUid);
+            })
             ->first();
 
-        if (!$member) {
+        if (! $member) {
             return response()->json([
                 'status' => 'error',
                 'success' => false,
@@ -182,9 +225,9 @@ class CheckInController extends Controller
             ], 404);
         }
 
-        $hasActiveSub = $member->activeSubscription !== null;
-        $planName = $hasActiveSub && $member->activeSubscription->plan
-            ? $member->activeSubscription->plan->name
+        $hasActiveSub = $member->activePlan !== null;
+        $planName = $hasActiveSub && $member->activePlan->pricingPlan
+            ? $member->activePlan->pricingPlan->name
             : 'Standard Membership';
 
         $checkIn = AttendanceLog::create([
@@ -220,7 +263,7 @@ class CheckInController extends Controller
         $log = AttendanceLog::where('id', $identifier)
             ->first();
 
-        if (!$log) {
+        if (! $log) {
             return response()->json([
                 'status' => 'error',
                 'success' => false,
@@ -283,9 +326,10 @@ class CheckInController extends Controller
      */
     private function invalidateDashboardCache(Request $request)
     {
-        $tenantSlug = $request->header('X-Tenant-Slug', 'default');
+        $tenantId = app('tenant')->id;
+
         foreach (['weekly', 'monthly', 'yearly'] as $range) {
-            Cache::forget("admin_dashboard_stats_{$tenantSlug}_{$range}");
+            Cache::forget("admin_dashboard_stats_{$tenantId}_{$range}");
         }
     }
 }

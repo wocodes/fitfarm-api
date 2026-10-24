@@ -19,22 +19,21 @@ class EnsureAuthorizedTerminal
     {
         // 1. Resolve current tenant
         $tenant = app()->bound('tenant') ? app('tenant') : null;
-        if (!$tenant && $user = $request->user()) {
+        if (! $tenant && $user = $request->user()) {
             if ($user->tenant_id) {
                 $tenant = Tenant::find($user->tenant_id);
             }
         }
 
         // If tenant does not enforce terminal lock, proceed normally
-        if (!$tenant || !$tenant->enforce_terminal_lock) {
+        if (! $tenant || ! $tenant->enforce_terminal_lock) {
             return $next($request);
         }
 
         // 2. Owners and Super Admins have unrestricted remote access from any device
         $user = $request->user();
         if ($user) {
-            $role = strtolower($user->role ?? '');
-            if (in_array($role, ['owner', 'super_admin', 'superadmin'])) {
+            if (method_exists($user, 'isTenantOwner') && $user->isTenantOwner()) {
                 return $next($request);
             }
             if (method_exists($user, 'hasPermissionTo') && $user->hasPermissionTo('bypass_terminal_lock')) {
@@ -47,7 +46,7 @@ class EnsureAuthorizedTerminal
             ?? $request->bearerToken() // in case sent as terminal auth
             ?? $request->cookie('fitcloud_terminal_token');
 
-        if (!$token) {
+        if (! $token) {
             return response()->json([
                 'status' => 'error',
                 'error_code' => 'UNAUTHORIZED_TERMINAL_DEVICE',
@@ -61,7 +60,7 @@ class EnsureAuthorizedTerminal
             ->where('status', 'active')
             ->first();
 
-        if (!$terminal) {
+        if (! $terminal) {
             return response()->json([
                 'status' => 'error',
                 'error_code' => 'UNAUTHORIZED_TERMINAL_DEVICE',

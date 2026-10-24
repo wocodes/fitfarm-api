@@ -14,7 +14,7 @@ class TerminalController extends Controller
      */
     public function index(Request $request)
     {
-        $tenantId = $request->get('tenant_id') ?? $request->user()?->tenant_id ?? Tenant::first()?->id ?? 1;
+        $tenantId = app('tenant')->id;
         $tenant = Tenant::find($tenantId);
 
         $terminals = Terminal::where('tenant_id', $tenantId)
@@ -37,10 +37,10 @@ class TerminalController extends Controller
      */
     public function checkCurrent(Request $request)
     {
-        $tenantId = $request->get('tenant_id') ?? $request->user()?->tenant_id ?? Tenant::first()?->id ?? 1;
+        $tenantId = app('tenant')->id;
         $token = $request->header('X-Terminal-Token');
 
-        if (!$token) {
+        if (! $token) {
             return response()->json([
                 'status' => 'success',
                 'success' => true,
@@ -74,22 +74,13 @@ class TerminalController extends Controller
     public function enroll(Request $request)
     {
         $user = $request->user();
-        $role = strtolower($user?->role ?? '');
-
-        if (!in_array($role, ['owner', 'super_admin', 'superadmin'])) {
-            return response()->json([
-                'status' => 'error',
-                'success' => false,
-                'message' => 'Only gym owners or administrators can enroll new front-desk terminals.',
-            ], 403);
-        }
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'device_fingerprint' => 'nullable|string|max:1000',
         ]);
 
-        $tenantId = $request->get('tenant_id') ?? $user->tenant_id ?? Tenant::first()?->id ?? 1;
+        $tenantId = app('tenant')->id;
 
         [$plainToken, $tokenHash] = Terminal::generateToken();
 
@@ -121,22 +112,11 @@ class TerminalController extends Controller
      */
     public function toggleLock(Request $request)
     {
-        $user = $request->user();
-        $role = strtolower($user?->role ?? '');
-
-        if (!in_array($role, ['owner', 'super_admin', 'superadmin'])) {
-            return response()->json([
-                'status' => 'error',
-                'success' => false,
-                'message' => 'Only gym owners can configure terminal enforcement.',
-            ], 403);
-        }
-
         $validated = $request->validate([
             'enforce' => 'required|boolean',
         ]);
 
-        $tenantId = $request->get('tenant_id') ?? $user->tenant_id ?? Tenant::first()?->id ?? 1;
+        $tenantId = app('tenant')->id;
         $tenant = Tenant::findOrFail($tenantId);
 
         $tenant->update([
@@ -161,27 +141,16 @@ class TerminalController extends Controller
      */
     public function destroy(Request $request, string $identifier)
     {
-        $user = $request->user();
-        $role = strtolower($user?->role ?? '');
-
-        if (!in_array($role, ['owner', 'super_admin', 'superadmin'])) {
-            return response()->json([
-                'status' => 'error',
-                'success' => false,
-                'message' => 'Only gym owners can revoke terminal authorizations.',
-            ], 403);
-        }
-
-        $tenantId = $request->get('tenant_id') ?? $user->tenant_id ?? Tenant::first()?->id ?? 1;
+        $tenantId = app('tenant')->id;
 
         $terminal = Terminal::where('tenant_id', $tenantId)
             ->where(function ($q) use ($identifier) {
                 $q->where('id', $identifier)
-                  ->orWhere('uuid', $identifier);
+                    ->orWhere('uuid', $identifier);
             })
             ->first();
 
-        if (!$terminal) {
+        if (! $terminal) {
             return response()->json([
                 'status' => 'error',
                 'success' => false,

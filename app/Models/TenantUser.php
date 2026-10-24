@@ -10,7 +10,7 @@ use Spatie\Permission\Traits\HasRoles;
 
 class TenantUser extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable, HasRoles;
+    use HasApiTokens, HasFactory, HasRoles, Notifiable;
 
     protected $guard_name = 'sanctum';
 
@@ -36,5 +36,26 @@ class TenantUser extends Authenticatable
     public function tenant()
     {
         return $this->belongsTo(Tenant::class);
+    }
+
+    /**
+     * Determine whether this user is a platform-level super admin.
+     */
+    public function isSuperAdmin(): bool
+    {
+        return $this->tenant_id === null && in_array(strtolower((string) $this->role), [
+            'super_admin',
+            'superadmin',
+            'role_super_admin',
+        ], true);
+    }
+
+    /**
+     * Determine whether this user can administer the active gym tenant.
+     */
+    public function isTenantOwner(): bool
+    {
+        return $this->isSuperAdmin()
+            || strtolower((string) $this->role) === 'owner';
     }
 }

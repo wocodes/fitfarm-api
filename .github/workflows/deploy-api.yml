@@ -1,0 +1,238 @@
+name: Deploy FitCloud API
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'app/**'
+      - 'bootstrap/**'
+      - 'config/**'
+      - 'database/**'
+      - 'public/**'
+      - 'routes/**'
+      - 'composer.json'
+      - 'composer.lock'
+      - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, curl, pdo_sqlite, fileinfo, bcmath, intl
+          tools: composer:v2
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Run tests
+        env:
+          APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+        run: php artisan test --compact
+
+  build-and-deploy:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          APP_KEY: ${{ secrets.APP_KEY }}
+          DB_DATABASE: ${{ secrets.DB_DATABASE }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          PAYSTACK_SECRET_KEY: ${{ secrets.PAYSTACK_SECRET_KEY }}
+        run: |
+          test -n "$SSH_HOST" || { echo "::error::SSH_HOST secret is missing"; exit 1; }
+          test -n "$SSH_USER" || { echo "::error::SSH_USER secret is missing"; exit 1; }
+          test -n "$SSH_PRIVATE_KEY" || { echo "::error::SSH_PRIVATE_KEY secret is missing"; exit 1; }
+          test -n "$APP_KEY" || { echo "::error::APP_KEY secret is missing"; exit 1; }
+          test -n "$DB_DATABASE" || { echo "::error::DB_DATABASE secret is missing"; exit 1; }
+          test -n "$DB_USERNAME" || { echo "::error::DB_USERNAME secret is missing"; exit 1; }
+          test -n "$DB_PASSWORD" || { echo "::error::DB_PASSWORD secret is missing"; exit 1; }
+          test -n "$PAYSTACK_SECRET_KEY" || { echo "::error::PAYSTACK_SECRET_KEY secret is missing"; exit 1; }
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, curl, pdo_mysql, fileinfo, bcmath, intl
+          tools: composer:v2
+          coverage: none
+
+      - name: Validate composer
+        run: composer validate --strict
+
+      - name: Install production dependencies
+        run: composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+
+      - name: Generate production .env
+        env:
+          APP_KEY: ${{ secrets.APP_KEY }}
+          APP_URL: ${{ secrets.APP_URL || 'https://api.fitfarmhq.com' }}
+          PLATFORM_DOMAIN: ${{ secrets.PLATFORM_DOMAIN || 'fitfarmhq.com' }}
+          CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || 'https://fitfarmhq.com,https://admin.fitfarmhq.com' }}
+          CORS_ALLOWED_ORIGIN_PATTERNS: ${{ secrets.CORS_ALLOWED_ORIGIN_PATTERNS || '' }}
+          DB_HOST: ${{ secrets.DB_HOST || '127.0.0.1' }}
+          DB_PORT: ${{ secrets.DB_PORT || '3306' }}
+          DB_DATABASE: ${{ secrets.DB_DATABASE }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          PAYSTACK_SECRET_KEY: ${{ secrets.PAYSTACK_SECRET_KEY }}
+          PAYSTACK_PUBLIC_KEY: ${{ secrets.PAYSTACK_PUBLIC_KEY || '' }}
+          PAYSTACK_VERIFY_REFERENCES: ${{ secrets.PAYSTACK_VERIFY_REFERENCES || 'true' }}
+          MAIL_MAILER: ${{ secrets.MAIL_MAILER || 'log' }}
+          MAIL_HOST: ${{ secrets.MAIL_HOST || '' }}
+          MAIL_PORT: ${{ secrets.MAIL_PORT || '587' }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME || '' }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD || '' }}
+          MAIL_FROM_ADDRESS: ${{ secrets.MAIL_FROM_ADDRESS || 'no-reply@fitfarmhq.com' }}
+          MAIL_FROM_NAME: ${{ secrets.MAIL_FROM_NAME || 'FitFarmHQ' }}
+          SUPER_ADMIN_EMAIL: ${{ secrets.SUPER_ADMIN_EMAIL || '' }}
+          SUPER_ADMIN_NAME: ${{ secrets.SUPER_ADMIN_NAME || 'Platform Admin' }}
+          SUPER_ADMIN_PASSWORD: ${{ secrets.SUPER_ADMIN_PASSWORD || '' }}
+        run: |
+          printf '%s\n' \
+            'APP_NAME=FitFarmHQ' \
+            'APP_ENV=production' \
+            'APP_DEBUG=false' \
+            "APP_URL=$APP_URL" \
+            "APP_KEY=$APP_KEY" \
+            'APP_LOCALE=en' \
+            'APP_FALLBACK_LOCALE=en' \
+            'APP_FAKER_LOCALE=en_US' \
+            'APP_MAINTENANCE_DRIVER=file' \
+            'BCRYPT_ROUNDS=12' \
+            'LOG_CHANNEL=stack' \
+            'LOG_STACK=single' \
+            'LOG_LEVEL=error' \
+            'DB_CONNECTION=mysql' \
+            "DB_HOST=$DB_HOST" \
+            "DB_PORT=$DB_PORT" \
+            "DB_DATABASE=$DB_DATABASE" \
+            "DB_USERNAME=$DB_USERNAME" \
+            "DB_PASSWORD=$DB_PASSWORD" \
+            'SESSION_DRIVER=database' \
+            'SESSION_LIFETIME=120' \
+            'SESSION_ENCRYPT=false' \
+            'SESSION_PATH=/' \
+            'SESSION_DOMAIN=null' \
+            'BROADCAST_CONNECTION=log' \
+            'FILESYSTEM_DISK=local' \
+            'QUEUE_CONNECTION=database' \
+            'CACHE_STORE=database' \
+            "MAIL_MAILER=$MAIL_MAILER" \
+            'MAIL_SCHEME=null' \
+            "MAIL_HOST=$MAIL_HOST" \
+            "MAIL_PORT=$MAIL_PORT" \
+            "MAIL_USERNAME=$MAIL_USERNAME" \
+            "MAIL_PASSWORD=$MAIL_PASSWORD" \
+            "MAIL_FROM_ADDRESS=$MAIL_FROM_ADDRESS" \
+            "MAIL_FROM_NAME=$MAIL_FROM_NAME" \
+            "PLATFORM_DOMAIN=$PLATFORM_DOMAIN" \
+            "CORS_ALLOWED_ORIGINS=$CORS_ALLOWED_ORIGINS" \
+            "CORS_ALLOWED_ORIGIN_PATTERNS=$CORS_ALLOWED_ORIGIN_PATTERNS" \
+            "PAYSTACK_SECRET_KEY=$PAYSTACK_SECRET_KEY" \
+            "PAYSTACK_PUBLIC_KEY=$PAYSTACK_PUBLIC_KEY" \
+            "PAYSTACK_VERIFY_REFERENCES=$PAYSTACK_VERIFY_REFERENCES" \
+            "SUPER_ADMIN_EMAIL=$SUPER_ADMIN_EMAIL" \
+            "SUPER_ADMIN_NAME=$SUPER_ADMIN_NAME" \
+            "SUPER_ADMIN_PASSWORD=$SUPER_ADMIN_PASSWORD" \
+            'SANCTUM_EXPIRATION=10080' \
+            'VITE_APP_NAME=FitFarmHQ' \
+            > .env
+          test -s .env
+          test -n "$APP_KEY"
+
+      - name: Prepare SSH key
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$SSH_HOST" > ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Enable maintenance mode
+        env:
+          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/api.fitfarmhq.com' }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            "cd '$TARGET' && php artisan down --retry=60 || true"
+
+      - name: Rsync application to Hostinger
+        env:
+          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/api.fitfarmhq.com' }}
+        run: |
+          rsync -az --delete --delay-updates \
+            -e "ssh -i ~/.ssh/id_ed25519" \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '/.htaccess' \
+            --exclude '/.user.ini' \
+            --exclude '.claude' \
+            --exclude '.junie' \
+            --exclude '.mcp.json' \
+            --exclude 'boost.json' \
+            --exclude 'node_modules' \
+            --exclude 'tests' \
+            --exclude 'phpunit.xml' \
+            --exclude 'database/database.sqlite' \
+            --exclude 'storage/app/*' \
+            --exclude 'storage/logs/*' \
+            --exclude 'storage/framework/cache/*' \
+            --exclude 'storage/framework/down' \
+            --exclude 'storage/framework/sessions/*' \
+            --exclude 'storage/framework/testing/*' \
+            --exclude 'storage/framework/views/*' \
+            ./ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${TARGET}/"
+
+      - name: Run post-deploy commands
+        env:
+          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/api.fitfarmhq.com' }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" "\
+            cd '$TARGET' && \
+            chmod -R 775 storage bootstrap/cache && \
+            php artisan migrate --force && \
+            php artisan storage:link || true && \
+            php artisan optimize && \
+            php artisan up"
+
+      - name: Verify API health
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS --max-time 15 https://api.fitfarmhq.com/up >/dev/null; then
+              echo "API health check passed."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::API health check failed after deployment."
+          exit 1
+
+      - name: Ensure maintenance mode is disabled
+        if: always()
+        env:
+          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/api.fitfarmhq.com' }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            "cd '$TARGET' && php artisan up || true"

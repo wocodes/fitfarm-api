@@ -15,6 +15,7 @@ class BankAccountController extends Controller
     public function index(Request $request)
     {
         $accounts = DB::table('accounts')
+            ->where('tenant_id', app('tenant')->id)
             ->orderBy('id', 'desc')
             ->get()
             ->map(function ($acc) {
@@ -48,6 +49,7 @@ class BankAccountController extends Controller
     public function active(Request $request)
     {
         $accounts = DB::table('accounts')
+            ->where('tenant_id', app('tenant')->id)
             ->where('is_active', true)
             ->orderBy('bank_name', 'asc')
             ->get()
@@ -80,7 +82,7 @@ class BankAccountController extends Controller
         $accountType = $request->input('accountType') ?? $request->input('account_type', 'Current');
         $isActive = filter_var($request->input('isActive', $request->input('is_active', true)), FILTER_VALIDATE_BOOLEAN);
 
-        if (!$bankName || !$accountNumber) {
+        if (! $bankName || ! $accountNumber) {
             return response()->json([
                 'status' => 'error',
                 'success' => false,
@@ -93,7 +95,7 @@ class BankAccountController extends Controller
 
         $id = DB::table('accounts')->insertGetId([
             'uuid' => $uuid,
-            'tenant_id' => 1,
+            'tenant_id' => app('tenant')->id,
             'bank_name' => $bankName,
             'account_number' => $accountNumber,
             'account_type' => $accountType,
@@ -132,11 +134,13 @@ class BankAccountController extends Controller
     public function update(Request $request, string $identifier)
     {
         $account = DB::table('accounts')
-            ->where('uuid', $identifier)
-            ->orWhere('id', $identifier)
+            ->where('tenant_id', app('tenant')->id)
+            ->where(function ($query) use ($identifier) {
+                $query->where('uuid', $identifier)->orWhere('id', $identifier);
+            })
             ->first();
 
-        if (!$account) {
+        if (! $account) {
             return response()->json([
                 'status' => 'error',
                 'success' => false,
@@ -181,8 +185,10 @@ class BankAccountController extends Controller
     public function destroy(string $identifier)
     {
         $deleted = DB::table('accounts')
-            ->where('uuid', $identifier)
-            ->orWhere('id', $identifier)
+            ->where('tenant_id', app('tenant')->id)
+            ->where(function ($query) use ($identifier) {
+                $query->where('uuid', $identifier)->orWhere('id', $identifier);
+            })
             ->delete();
 
         return response()->json([

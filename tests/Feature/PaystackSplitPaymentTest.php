@@ -6,7 +6,6 @@ use App\Models\Member;
 use App\Models\PricingPlan;
 use App\Models\Tenant;
 use App\Models\Transaction;
-use App\Services\PaystackService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -15,7 +14,9 @@ class PaystackSplitPaymentTest extends TestCase
     use RefreshDatabase;
 
     protected Tenant $tenant;
+
     protected Member $member;
+
     protected PricingPlan $plan;
 
     protected function setUp(): void
@@ -29,6 +30,8 @@ class PaystackSplitPaymentTest extends TestCase
             'status' => 'active',
             'paystack_subaccount_code' => 'ACCT_DEMO12345',
         ]);
+
+        config(['fitcloud.paystack.secret_key' => 'test-secret']);
 
         app()->instance('tenant', $this->tenant);
 
@@ -81,14 +84,19 @@ class PaystackSplitPaymentTest extends TestCase
             'status' => 'pending',
         ]);
 
-        $response = $this->postJson('/api/v1/webhooks/paystack', [
+        $payload = [
             'event' => 'charge.success',
             'data' => [
                 'reference' => 'FC-TX-WEBHOOK123',
-                'amount' => 1000000, // In kobo
+                'amount' => 1000000,
                 'status' => 'success',
-            ]
-        ]);
+            ],
+        ];
+
+        $response = $this->withHeader(
+            'x-paystack-signature',
+            hash_hmac('sha512', json_encode($payload), 'test-secret')
+        )->postJson('/api/v1/webhooks/paystack', $payload);
 
         $response->assertStatus(200);
 

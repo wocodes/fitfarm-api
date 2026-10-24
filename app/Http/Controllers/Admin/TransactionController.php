@@ -4,9 +4,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
-use App\Models\Member;
 use App\Models\Transaction;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 
 class TransactionController extends Controller
 {
@@ -26,8 +26,8 @@ class TransactionController extends Controller
         if ($method) {
             $query->where(function ($mq) use ($method) {
                 $mq->where('payment_method', $method)
-                  ->orWhere('payment_method', strtolower($method))
-                  ->orWhere('payment_method', strtoupper($method));
+                    ->orWhere('payment_method', strtolower($method))
+                    ->orWhere('payment_method', strtoupper($method));
             });
         }
 
@@ -40,31 +40,31 @@ class TransactionController extends Controller
             };
             $query->where(function ($sq) use ($rawStatus, $status) {
                 $sq->where('status', $rawStatus)
-                  ->orWhere('status', strtolower($status))
-                  ->orWhere('status', strtoupper($status));
+                    ->orWhere('status', strtolower($status))
+                    ->orWhere('status', strtoupper($status));
             });
         }
 
         if ($request->filled('startDate')) {
-            $query->where('created_at', '>=', \Illuminate\Support\Carbon::parse($request->input('startDate')));
+            $query->where('created_at', '>=', Carbon::parse($request->input('startDate')));
         }
 
         if ($request->filled('endDate')) {
-            $query->where('created_at', '<=', \Illuminate\Support\Carbon::parse($request->input('endDate'))->endOfDay());
+            $query->where('created_at', '<=', Carbon::parse($request->input('endDate'))->endOfDay());
         }
 
         if ($request->filled('search')) {
             $search = $request->input('search');
             $query->where(function ($q) use ($search) {
                 $q->where('reference', 'like', "%{$search}%")
-                  ->orWhereHas('member', function ($mq) use ($search) {
-                      $mq->where('name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%")
-                        ->orWhere('uid', 'like', "%{$search}%");
-                  })->orWhereHas('pricingPlan', function ($pq) use ($search) {
-                      $pq->where('name', 'like', "%{$search}%");
-                  });
+                    ->orWhereHas('member', function ($mq) use ($search) {
+                        $mq->where('name', 'like', "%{$search}%")
+                            ->orWhere('email', 'like', "%{$search}%")
+                            ->orWhere('phone', 'like', "%{$search}%")
+                            ->orWhere('uid', 'like', "%{$search}%");
+                    })->orWhereHas('pricingPlan', function ($pq) use ($search) {
+                        $pq->where('name', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -129,7 +129,7 @@ class TransactionController extends Controller
             'status' => 'nullable|string',
         ]);
 
-        $reference = $validated['reference'] ?? ('MAN-' . strtoupper(uniqid()));
+        $reference = $validated['reference'] ?? ('MAN-'.strtoupper(uniqid()));
         $rawStatus = strtolower($validated['status'] ?? 'successful');
         $status = match ($rawStatus) {
             'approved', 'success' => 'successful',
@@ -256,6 +256,26 @@ class TransactionController extends Controller
             'message' => 'Transaction amount updated successfully.',
             'data' => $transaction,
         ]);
+    }
+
+    /**
+     * Approve a manual payment.
+     */
+    public function approve(Request $request, $id)
+    {
+        $request->merge(['status' => 'approved']);
+
+        return $this->updateStatus($request, $id);
+    }
+
+    /**
+     * Reject a manual payment.
+     */
+    public function reject(Request $request, $id)
+    {
+        $request->merge(['status' => 'rejected']);
+
+        return $this->updateStatus($request, $id);
     }
 
     /**

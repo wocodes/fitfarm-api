@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Tenant;
 use App\Models\ThemeSetting;
 use Illuminate\Http\Request;
 
@@ -37,15 +36,18 @@ class GymSettingsController extends Controller
      */
     public function show(Request $request)
     {
-        $tenantId = $request->get('tenant_id') ?? Tenant::first()?->id ?? 1;
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
 
-        $tenant = Tenant::with(['theme', 'features'])->find($tenantId);
-
-        if (!$tenant) {
-            $tenant = Tenant::first();
+        if (! $tenant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gym not found.',
+            ], 404);
         }
 
-        $theme = $tenant ? $tenant->theme : null;
+        $tenant->load(['theme', 'features']);
+
+        $theme = $tenant->theme;
 
         $terms = self::getDefaultTerms();
         $privacy = self::getDefaultPrivacy();
@@ -102,7 +104,7 @@ class GymSettingsController extends Controller
                     'status' => 'online',
                     'latency' => '12ms',
                 ],
-            ]
+            ],
         ]);
     }
 
@@ -111,7 +113,39 @@ class GymSettingsController extends Controller
      */
     public function publicSettings(Request $request)
     {
-        return $this->show($request);
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
+
+        if (! $tenant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gym not found.',
+            ], 404);
+        }
+
+        $tenant->load('theme');
+        $cms = $tenant->getCmsSection('contact_socials');
+
+        return response()->json([
+            'status' => 'success',
+            'success' => true,
+            'data' => [
+                'tenant' => [
+                    'name' => $tenant->name,
+                    'slug' => $tenant->slug,
+                    'logo_url' => $tenant->logo_url,
+                    'timezone' => $tenant->timezone,
+                    'currency' => $tenant->currency,
+                ],
+                'theme' => $tenant->theme,
+                'contact_socials' => $cms,
+                'legal_docs' => [
+                    'terms_conditions' => self::getDefaultTerms(),
+                    'privacy_policy' => self::getDefaultPrivacy(),
+                    'liability_waiver' => self::getDefaultWaiver(),
+                    'refund_policy' => self::getDefaultRefund(),
+                ],
+            ],
+        ]);
     }
 
     /**
@@ -119,11 +153,13 @@ class GymSettingsController extends Controller
      */
     public function update(Request $request)
     {
-        $tenantId = $request->get('tenant_id') ?? Tenant::first()?->id ?? 1;
-        $tenant = Tenant::find($tenantId);
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
 
-        if (!$tenant) {
-            $tenant = Tenant::first();
+        if (! $tenant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gym not found.',
+            ], 404);
         }
 
         $validated = $request->validate([
@@ -161,19 +197,19 @@ class GymSettingsController extends Controller
 
         // Record Audit Log Entry
         AuditLogController::log(
-            $tenant ? $tenant->id : 1,
-            $request->input('user_name', 'Super Admin'),
+            $tenant->id,
+            $request->user()?->name ?? 'Staff',
             'LEGAL_DOCS_UPDATED',
             'GymSettings',
-            (string) ($tenant ? $tenant->id : 1),
-            "Updated legal agreements, privacy policies, health waivers, and subscription terms."
+            (string) $tenant->id,
+            'Updated legal agreements, privacy policies, health waivers, and subscription terms.'
         );
 
         return response()->json([
             'status' => 'success',
             'success' => true,
             'message' => 'Gym legal documents and member agreements updated successfully.',
-            'data' => $tenant ? $tenant->fresh(['theme']) : null,
+            'data' => $tenant->fresh(['theme']),
         ]);
     }
 }

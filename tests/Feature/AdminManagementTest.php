@@ -13,8 +13,11 @@ class AdminManagementTest extends TestCase
     use RefreshDatabase;
 
     protected Tenant $tenantA;
+
     protected Tenant $tenantB;
+
     protected TenantUser $userA;
+
     protected TenantUser $userB;
 
     protected function setUp(): void
@@ -50,7 +53,7 @@ class AdminManagementTest extends TestCase
         ]);
     }
 
-    public function test_tenant_a_cannot_see_tenant_b_members(): void
+    public function test_tenant_header_cannot_switch_authenticated_user_to_another_tenant(): void
     {
         // Create member for Tenant A
         app()->instance('tenant', $this->tenantA);
@@ -68,23 +71,14 @@ class AdminManagementTest extends TestCase
             'email' => 'john@gmail.com',
         ]);
 
-        // Query API as Tenant A
-        $responseA = $this->actingAs($this->userA, 'sanctum')
-            ->withHeaders(['X-Tenant-UUID' => $this->tenantA->uuid])
-            ->getJson('/api/v1/admin/members');
-
-        $responseA->assertStatus(200)
-            ->assertJsonCount(1, 'data.data')
-            ->assertJsonPath('data.data.0.first_name', 'Gabriel');
-
-        // Query API as Tenant B
-        $responseB = $this->actingAs($this->userB, 'sanctum')
+        // A Tenant A user supplies Tenant B's header. The API must ignore it.
+        $response = $this->actingAs($this->userA, 'sanctum')
             ->withHeaders(['X-Tenant-UUID' => $this->tenantB->uuid])
             ->getJson('/api/v1/admin/members');
 
-        $responseB->assertStatus(200)
+        $response->assertStatus(200)
             ->assertJsonCount(1, 'data.data')
-            ->assertJsonPath('data.data.0.first_name', 'John');
+            ->assertJsonPath('data.data.0.first_name', 'Gabriel');
     }
 
     public function test_can_process_check_in_and_retrieve_leaderboard(): void
@@ -111,7 +105,7 @@ class AdminManagementTest extends TestCase
             ->getJson('/api/v1/admin/campaigns/leaderboard');
 
         $leaderboardRes->assertStatus(200)
-            ->assertJsonPath('data.top10.0.fullName', 'Kelechi O.')
+            ->assertJsonPath('data.top10.0.fullName', 'Kelechi Oshoname')
             ->assertJsonPath('data.top10.0.checkInCount', 1)
             ->assertJsonPath('data.top10.0.points', 10);
     }

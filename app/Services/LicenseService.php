@@ -18,7 +18,7 @@ class LicenseService
         ?string $userEmail = null,
         ?int $trialDays = 30
     ): License {
-        $key = 'FC-' . strtoupper(Str::random(4)) . '-' . strtoupper(Str::random(4)) . '-' . strtoupper(Str::random(4));
+        $key = 'FC-'.strtoupper(Str::random(4)).'-'.strtoupper(Str::random(4)).'-'.strtoupper(Str::random(4));
 
         $defaultFeatures = [
             'member_management',
@@ -51,20 +51,14 @@ class LicenseService
     {
         $license = License::where('key', trim($key))->first();
 
-        if (!$license && (str_starts_with(trim($key), 'FC-') || str_starts_with(trim($key), 'FC-TRL-'))) {
-            $license = $this->generateLicense('starter', 100, null, 'trial', null, 30);
-            $license->key = trim($key);
-            $license->save();
-        }
-
-        if (!$license) {
+        if (! $license) {
             return [
                 'valid' => false,
                 'message' => 'License key not found. Please check and try again.',
             ];
         }
 
-        if (!$license->is_active) {
+        if (! $license->is_active) {
             return [
                 'valid' => false,
                 'message' => 'This license key has been deactivated or disabled.',
@@ -81,13 +75,13 @@ class LicenseService
         if ($license->expires_at && $license->expires_at->isPast()) {
             return [
                 'valid' => false,
-                'message' => 'This trial/license key has expired on ' . $license->expires_at->toFormattedDateString() . '. Please renew to switch to Full mode.',
+                'message' => 'This trial/license key has expired on '.$license->expires_at->toFormattedDateString().'. Please renew to switch to Full mode.',
             ];
         }
 
         return [
             'valid' => true,
-            'message' => 'License key verified successfully (' . strtoupper($license->mode) . ' mode).',
+            'message' => 'License key verified successfully ('.strtoupper($license->mode).' mode).',
             'license' => $license,
         ];
     }
@@ -99,7 +93,7 @@ class LicenseService
     {
         $license = License::where('key', trim($key))->first();
 
-        if (!$license) {
+        if (! $license) {
             return [
                 'success' => false,
                 'message' => 'License key not found.',
@@ -117,7 +111,7 @@ class LicenseService
 
         return [
             'success' => true,
-            'message' => "License key successfully renewed to " . strtoupper($targetMode) . " mode (Expires on " . $newExpiry->toFormattedDateString() . ").",
+            'message' => 'License key successfully renewed to '.strtoupper($targetMode).' mode (Expires on '.$newExpiry->toFormattedDateString().').',
             'license' => $license,
         ];
     }

@@ -62,9 +62,9 @@ class GymLocationController extends Controller
      */
     public function update(Request $request, string $identifier)
     {
-        $location = GymLocation::where('uuid', $identifier)
-            ->orWhere('id', $identifier)
-            ->firstOrFail();
+        $location = GymLocation::where(function ($query) use ($identifier) {
+            $query->where('uuid', $identifier)->orWhere('id', $identifier);
+        })->firstOrFail();
 
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
@@ -90,9 +90,9 @@ class GymLocationController extends Controller
      */
     public function destroy(string $identifier)
     {
-        $location = GymLocation::where('uuid', $identifier)
-            ->orWhere('id', $identifier)
-            ->firstOrFail();
+        $location = GymLocation::where(function ($query) use ($identifier) {
+            $query->where('uuid', $identifier)->orWhere('id', $identifier);
+        })->firstOrFail();
 
         $location->delete();
 
@@ -111,9 +111,9 @@ class GymLocationController extends Controller
         $locationId = $request->input('locationId') ?? $request->input('location_id');
         $permanent = filter_var($request->input('permanent', true), FILTER_VALIDATE_BOOLEAN);
 
-        $location = GymLocation::where('uuid', $locationId)
-            ->orWhere('id', $locationId)
-            ->first();
+        $location = GymLocation::where(function ($query) use ($locationId) {
+            $query->where('uuid', $locationId)->orWhere('id', $locationId);
+        })->first();
 
         $locationName = $location ? $location->name : 'Main Location';
         $locationUid = $location ? $location->uuid : ($locationId ?? (string) Str::uuid());
@@ -121,7 +121,7 @@ class GymLocationController extends Controller
         $baseUrl = config('app.frontend_url', 'https://fitcloud.io');
         $timestamp = time();
 
-        $qrLink = "{$baseUrl}/check-in?loc={$locationUid}&perm=" . ($permanent ? '1' : '0') . "&ts={$timestamp}";
+        $qrLink = "{$baseUrl}/check-in?loc={$locationUid}&perm=".($permanent ? '1' : '0')."&ts={$timestamp}";
 
         return response()->json([
             'status' => 'success',

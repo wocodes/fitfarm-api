@@ -7,12 +7,14 @@ use App\Models\AttendanceLog;
 use App\Models\Member;
 use App\Models\MemberPlan;
 use App\Models\PricingPlan;
-use App\Models\Tenant;
 use App\Models\Transaction;
+use App\Services\PaystackService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class MemberPortalController extends Controller
 {
@@ -21,23 +23,23 @@ class MemberPortalController extends Controller
      */
     public function portalInfo(Request $request)
     {
-        $slug = $request->query('tenant');
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
 
-        $tenant = null;
-        if ($slug) {
-            $tenant = Tenant::with(['theme', 'pricingPlans'])->where('slug', $slug)->first();
-        }
-
-        if (!$tenant) {
-            $tenant = Tenant::with(['theme', 'pricingPlans'])->first();
-        }
-
-        if (!$tenant) {
+        if (! $tenant) {
             return response()->json([
                 'success' => false,
-                'message' => 'No active gym tenant found.',
+                'message' => 'Gym not found.',
             ], 404);
         }
+
+        if (! in_array($tenant->status, ['active', 'trialing'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This gym portal is currently unavailable.',
+            ], 404);
+        }
+
+        $tenant->load(['theme', 'pricingPlans']);
 
         $plans = PricingPlan::where('tenant_id', $tenant->id)
             ->where('is_active', true)
@@ -63,9 +65,9 @@ class MemberPortalController extends Controller
                     'logo_url' => $tenant->logo_url,
                     'currency' => $tenant->currency ?? 'NGN',
                     'timezone' => $tenant->timezone ?? 'Africa/Lagos',
-                    'address' => $cms['contact_socials']['address'] ?? '14 Admiralty Way, Lekki Phase 1, Lagos, Nigeria',
-                    'phone' => $cms['contact_socials']['phone'] ?? '+234 812 345 6789',
-                    'email' => $cms['contact_socials']['email'] ?? 'frontdesk@polanfit.com',
+                    'address' => $cms['contact_socials']['address'] ?? null,
+                    'phone' => $cms['contact_socials']['phone'] ?? null,
+                    'email' => $cms['contact_socials']['email'] ?? null,
                 ],
                 'theme' => $tenant->theme ?? [
                     'primary_color' => '#fa6a2e',
@@ -73,7 +75,7 @@ class MemberPortalController extends Controller
                 ],
                 'pricing_plans' => $plans,
                 'cms' => $cms,
-            ]
+            ],
         ]);
     }
 
@@ -87,9 +89,20 @@ class MemberPortalController extends Controller
             'password' => 'required|string',
         ]);
 
-        $member = Member::where('email', $validated['email'])->first();
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
 
-        if (!$member) {
+        if (! $tenant || ! in_array($tenant->status, ['active', 'trialing'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gym not found or currently unavailable.',
+            ], 422);
+        }
+
+        $member = Member::where('tenant_id', $tenant->id)
+            ->where('email', $validated['email'])
+            ->first();
+
+        if (! $member) {
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid email address or password.',
@@ -101,7 +114,7 @@ class MemberPortalController extends Controller
             $dbPassword = str_replace('{bcrypt}', '', $dbPassword);
         }
         if (str_starts_with($dbPassword, '$2a$')) {
-            $dbPassword = '$2y$' . substr($dbPassword, 4);
+            $dbPassword = '$2y$'.substr($dbPassword, 4);
             $member->update(['password' => $dbPassword]);
         }
 
@@ -114,19 +127,19 @@ class MemberPortalController extends Controller
             }
         }
 
-        if (!$passwordValid && ($validated['password'] === $dbPassword || md5($validated['password']) === $dbPassword)) {
+        if (! $passwordValid && ($validated['password'] === $dbPassword || md5($validated['password']) === $dbPassword)) {
             $passwordValid = true;
             $member->update(['password' => Hash::make($validated['password'])]);
         }
 
-        if (!$passwordValid) {
+        if (! $passwordValid) {
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid email address or password.',
             ], 401);
         }
 
-        $token = $member->createToken('member-portal-token')->plainTextToken;
+        $token = $member->createToken('member-portal-token', ['member'])->plainTextToken;
 
         return response()->json([
             'success' => true,
@@ -134,7 +147,7 @@ class MemberPortalController extends Controller
             'data' => [
                 'member' => $member->load('activePlan.pricingPlan'),
                 'token' => $token,
-            ]
+            ],
         ]);
     }
 
@@ -143,27 +156,39 @@ class MemberPortalController extends Controller
      */
     public function register(Request $request)
     {
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
+
+        if (! $tenant || ! in_array($tenant->status, ['active', 'trialing'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gym not found or currently unavailable.',
+            ], 422);
+        }
+
         $validated = $request->validate([
             'tenant_slug' => 'nullable|string',
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
-            'email' => 'required|email|unique:members,email',
+            'email' => [
+                'required',
+                'email',
+                Rule::unique('members', 'email')->where('tenant_id', $tenant->id),
+            ],
             'phone' => 'required|string',
             'password' => 'required|string|min:8',
         ]);
 
-        $tenant = Tenant::where('slug', $validated['tenant_slug'] ?? '')->first() ?? Tenant::first();
-
-        if (!$tenant) {
+        if (! empty($validated['tenant_slug'])
+            && strtolower($validated['tenant_slug']) !== strtolower($tenant->slug)) {
             return response()->json([
                 'success' => false,
-                'message' => 'No active gym tenant found.',
+                'message' => 'The requested gym does not match this portal.',
             ], 422);
         }
 
         $member = Member::create([
             'tenant_id' => $tenant->id,
-            'uuid' => 'FC-M-' . strtoupper(Str::random(6)),
+            'uuid' => 'FC-M-'.strtoupper(Str::random(6)),
             'first_name' => $validated['first_name'],
             'last_name' => $validated['last_name'],
             'email' => $validated['email'],
@@ -172,7 +197,7 @@ class MemberPortalController extends Controller
             'status' => 'active',
         ]);
 
-        $token = $member->createToken('member-portal-token')->plainTextToken;
+        $token = $member->createToken('member-portal-token', ['member'])->plainTextToken;
 
         return response()->json([
             'success' => true,
@@ -180,7 +205,7 @@ class MemberPortalController extends Controller
             'data' => [
                 'member' => $member,
                 'token' => $token,
-            ]
+            ],
         ], 201);
     }
 
@@ -191,7 +216,7 @@ class MemberPortalController extends Controller
     {
         $member = $request->user();
 
-        if (!$member) {
+        if (! $member) {
             return response()->json([
                 'success' => false,
                 'message' => 'Unauthenticated.',
@@ -223,7 +248,7 @@ class MemberPortalController extends Controller
                 'active_plan' => $activePlan,
                 'qr_code_token' => base64_encode($qrCodePayload),
                 'check_in_history' => $checkIns,
-            ]
+            ],
         ]);
     }
 
@@ -238,7 +263,7 @@ class MemberPortalController extends Controller
             ->latest('check_in_time')
             ->first();
 
-        if (!$session) {
+        if (! $session) {
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -276,7 +301,7 @@ class MemberPortalController extends Controller
             ->latest('check_in_time')
             ->first();
 
-        if (!$session) {
+        if (! $session) {
             return response()->json([
                 'success' => false,
                 'message' => 'No active workout session found to check out.',
@@ -310,60 +335,135 @@ class MemberPortalController extends Controller
         $member = $request->user();
 
         $validated = $request->validate([
-            'pricing_plan_id' => 'required|exists:pricing_plans,id',
-            'payment_reference' => 'required|string',
+            'pricing_plan_id' => 'required|integer',
+            'payment_reference' => 'required|string|max:255',
             'amount' => 'required|numeric|min:0',
-            'channel' => 'nullable|string',
+            'channel' => 'nullable|string|max:50',
         ]);
 
-        $plan = PricingPlan::findOrFail($validated['pricing_plan_id']);
-        $tenantId = $plan->tenant_id ?? $member->tenant_id ?? 1;
+        $plan = PricingPlan::where('tenant_id', $member->tenant_id)
+            ->whereKey($validated['pricing_plan_id'])
+            ->where('is_active', true)
+            ->firstOrFail();
 
-        // 1. Record transaction
-        $transaction = Transaction::create([
-            'tenant_id' => $tenantId,
-            'member_id' => $member->id,
-            'pricing_plan_id' => $plan->id,
-            'reference' => $validated['payment_reference'],
-            'amount' => $validated['amount'],
-            'currency' => $plan->currency ?? 'NGN',
-            'type' => 'subscription',
-            'channel' => $validated['channel'] ?? 'paystack',
-            'status' => 'successful',
-            'description' => "Online renewal for {$plan->name}",
-            'paid_at' => now(),
-        ]);
+        $expectedAmount = (float) $plan->price;
 
-        // 2. Compute subscription dates (extend if existing active plan)
-        $durationDays = $plan->duration_days ?: 30;
-        $existingPlan = MemberPlan::where('member_id', $member->id)
-            ->where('status', 'active')
-            ->where('expires_at', '>', now())
-            ->latest('expires_at')
-            ->first();
+        if (abs((float) $validated['amount'] - $expectedAmount) > 0.009) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The purchase amount does not match the selected plan.',
+            ], 422);
+        }
 
-        $startsAt = $existingPlan ? $existingPlan->expires_at : now();
-        $expiresAt = (clone $startsAt)->addDays($durationDays);
+        $reference = trim($validated['payment_reference']);
 
-        $memberPlan = MemberPlan::create([
-            'tenant_id' => $tenantId,
-            'member_id' => $member->id,
-            'pricing_plan_id' => $plan->id,
-            'starts_at' => $startsAt,
-            'expires_at' => $expiresAt,
-            'status' => 'active',
-        ]);
+        if (config('fitcloud.verify_paystack_references', false)) {
+            $verification = app(PaystackService::class)->verifyTransaction($reference);
 
-        // Ensure member status is active
-        $member->update(['status' => 'active']);
+            if (! $verification['success']
+                || ($verification['status'] ?? null) !== 'success'
+                || ($verification['reference'] ?? null) !== $reference) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Payment could not be verified with Paystack. Please try again or contact support.',
+                ], 422);
+            }
 
-        return response()->json([
-            'success' => true,
-            'message' => "Subscription to {$plan->name} activated successfully! Valid until {$expiresAt->format('M d, Y')}.",
-            'data' => [
-                'member_plan' => $memberPlan->load('pricingPlan'),
-                'transaction' => $transaction,
-            ],
-        ], 201);
+            if ((int) ($verification['amount'] ?? 0) !== (int) round($expectedAmount * 100)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The verified payment amount does not match the selected plan.',
+                ], 422);
+            }
+
+            $verifiedEmail = strtolower((string) ($verification['data']['customer']['email'] ?? ''));
+
+            if ($verifiedEmail !== '' && $verifiedEmail !== strtolower((string) $member->email)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The verified payment does not belong to this member account.',
+                ], 422);
+            }
+        } elseif (app()->environment('production')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Online payments are not configured correctly. Please contact the gym.',
+            ], 503);
+        }
+
+        return DB::transaction(function () use ($member, $plan, $reference, $expectedAmount) {
+            $existingTransaction = Transaction::where('reference', $reference)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingTransaction) {
+                if ((int) $existingTransaction->member_id !== (int) $member->id
+                    || $existingTransaction->status !== 'successful') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'This payment reference has already been used.',
+                    ], 422);
+                }
+
+                $existingPlan = MemberPlan::where('tenant_id', $member->tenant_id)
+                    ->where('member_id', $member->id)
+                    ->where('status', 'active')
+                    ->latest('id')
+                    ->first();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'This payment has already been applied to your membership.',
+                    'data' => [
+                        'member_plan' => $existingPlan?->load('pricingPlan'),
+                        'transaction' => $existingTransaction,
+                    ],
+                ]);
+            }
+
+            $transaction = Transaction::create([
+                'tenant_id' => $member->tenant_id,
+                'member_id' => $member->id,
+                'pricing_plan_id' => $plan->id,
+                'reference' => $reference,
+                'amount' => $expectedAmount,
+                'platform_fee' => 0,
+                'net_amount' => $expectedAmount,
+                'currency' => $member->tenant?->currency ?? 'NGN',
+                'payment_method' => 'paystack',
+                'status' => 'successful',
+            ]);
+
+            $durationDays = $plan->duration_days ?: 30;
+            $existingPlan = MemberPlan::where('tenant_id', $member->tenant_id)
+                ->where('member_id', $member->id)
+                ->where('status', 'active')
+                ->where('expires_at', '>', now())
+                ->latest('expires_at')
+                ->first();
+
+            $startsAt = $existingPlan ? $existingPlan->expires_at : now();
+            $expiresAt = (clone $startsAt)->addDays($durationDays);
+
+            $memberPlan = MemberPlan::create([
+                'tenant_id' => $member->tenant_id,
+                'member_id' => $member->id,
+                'pricing_plan_id' => $plan->id,
+                'starts_at' => $startsAt,
+                'expires_at' => $expiresAt,
+                'status' => 'active',
+            ]);
+
+            $member->update(['status' => 'active']);
+
+            return response()->json([
+                'success' => true,
+                'message' => "Subscription to {$plan->name} activated successfully! Valid until {$expiresAt->format('M d, Y')}.",
+                'data' => [
+                    'member_plan' => $memberPlan->load('pricingPlan'),
+                    'transaction' => $transaction,
+                ],
+            ], 201);
+        });
     }
 }

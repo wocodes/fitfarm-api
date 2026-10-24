@@ -15,6 +15,7 @@ class PaymentTypeController extends Controller
     public function index(Request $request)
     {
         $types = DB::table('payment_types')
+            ->where('tenant_id', app('tenant')->id)
             ->orderBy('id', 'desc')
             ->get()
             ->map(function ($pt) {
@@ -49,7 +50,7 @@ class PaymentTypeController extends Controller
         $defaultAmount = $request->input('defaultAmount') ?? $request->input('default_amount');
         $isActive = filter_var($request->input('isActive', $request->input('is_active', true)), FILTER_VALIDATE_BOOLEAN);
 
-        if (!$name) {
+        if (! $name) {
             return response()->json([
                 'status' => 'error',
                 'success' => false,
@@ -62,7 +63,7 @@ class PaymentTypeController extends Controller
 
         $id = DB::table('payment_types')->insertGetId([
             'uuid' => $uuid,
-            'tenant_id' => 1,
+            'tenant_id' => app('tenant')->id,
             'name' => $name,
             'code' => strtoupper(str_replace(' ', '_', $code)),
             'default_amount' => $defaultAmount ? (float) $defaultAmount : null,
@@ -93,11 +94,13 @@ class PaymentTypeController extends Controller
     public function update(Request $request, string $identifier)
     {
         $pt = DB::table('payment_types')
-            ->where('uuid', $identifier)
-            ->orWhere('id', $identifier)
+            ->where('tenant_id', app('tenant')->id)
+            ->where(function ($query) use ($identifier) {
+                $query->where('uuid', $identifier)->orWhere('id', $identifier);
+            })
             ->first();
 
-        if (!$pt) {
+        if (! $pt) {
             return response()->json([
                 'status' => 'error',
                 'success' => false,
@@ -143,8 +146,10 @@ class PaymentTypeController extends Controller
     public function destroy(string $identifier)
     {
         DB::table('payment_types')
-            ->where('uuid', $identifier)
-            ->orWhere('id', $identifier)
+            ->where('tenant_id', app('tenant')->id)
+            ->where(function ($query) use ($identifier) {
+                $query->where('uuid', $identifier)->orWhere('id', $identifier);
+            })
             ->delete();
 
         return response()->json([

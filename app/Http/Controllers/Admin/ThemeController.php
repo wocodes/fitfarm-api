@@ -13,21 +13,17 @@ class ThemeController extends Controller
      */
     public function show(Request $request)
     {
-        $tenantId = 1;
-        if (app()->bound('tenant') && app('tenant')) {
-            $tenantId = app('tenant')->id;
-        } elseif ($request->user() && $request->user()->tenant_id) {
-            $tenantId = $request->user()->tenant_id;
-        } else {
-            $slug = $request->query('tenant');
-            if ($slug) {
-                $t = \App\Models\Tenant::where('slug', $slug)->first();
-                if ($t) $tenantId = $t->id;
-            }
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
+
+        if (! $tenant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gym not found.',
+            ], 404);
         }
 
         $theme = ThemeSetting::firstOrCreate(
-            ['tenant_id' => $tenantId],
+            ['tenant_id' => $tenant->id],
             [
                 'primary_color' => '#fa6a2e',
                 'accent_color' => '#1e293b',
@@ -49,11 +45,13 @@ class ThemeController extends Controller
      */
     public function update(Request $request)
     {
-        $tenantId = 1;
-        if (app()->bound('tenant') && app('tenant')) {
-            $tenantId = app('tenant')->id;
-        } elseif ($request->user() && $request->user()->tenant_id) {
-            $tenantId = $request->user()->tenant_id;
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
+
+        if (! $tenant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gym not found.',
+            ], 404);
         }
 
         $validated = $request->validate([
@@ -67,7 +65,7 @@ class ThemeController extends Controller
         ]);
 
         $theme = ThemeSetting::updateOrCreate(
-            ['tenant_id' => $tenantId],
+            ['tenant_id' => $tenant->id],
             $validated
         );
 

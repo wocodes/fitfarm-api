@@ -3,17 +3,14 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\AuditLog;
 use App\Models\Member;
 use App\Models\MemberPlan;
 use App\Models\PricingPlan;
 use App\Models\SystemBackup;
 use App\Models\Tenant;
 use App\Models\Transaction;
-
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Storage;
 
 class BackupController extends Controller
 {
@@ -22,15 +19,9 @@ class BackupController extends Controller
      */
     public function index(Request $request)
     {
-        $tenantId = $request->get('tenant_id') ?? Tenant::first()?->id ?? 1;
+        $tenantId = app('tenant')->id;
 
         $backups = SystemBackup::where('tenant_id', $tenantId)->latest()->get();
-
-        // If no backups exist yet, seed a default initial snapshot
-        if ($backups->isEmpty()) {
-            $this->seedInitialBackup($tenantId);
-            $backups = SystemBackup::where('tenant_id', $tenantId)->latest()->get();
-        }
 
         return response()->json([
             'status' => 'success',
@@ -44,7 +35,7 @@ class BackupController extends Controller
      */
     public function createBackup(Request $request)
     {
-        $tenantId = $request->get('tenant_id') ?? Tenant::first()?->id ?? 1;
+        $tenantId = app('tenant')->id;
         $tenant = Tenant::find($tenantId);
         $tenantSlug = $tenant ? $tenant->slug : "tenant_{$tenantId}";
 
@@ -75,8 +66,8 @@ class BackupController extends Controller
             ],
             'metadata' => [
                 'total_records' => $totalRecords,
-                'created_by' => $request->input('created_by', 'Super Admin'),
-            ]
+                'created_by' => $request->user()?->name ?? 'Owner',
+            ],
         ];
 
         $jsonContent = json_encode($backupPayload, JSON_PRETTY_PRINT);
@@ -85,7 +76,7 @@ class BackupController extends Controller
 
         // Save file to storage
         $directory = storage_path("app/backups/{$tenantSlug}");
-        if (!File::exists($directory)) {
+        if (! File::exists($directory)) {
             File::makeDirectory($directory, 0755, true);
         }
 
@@ -102,13 +93,13 @@ class BackupController extends Controller
             'record_count' => $totalRecords,
             'tables_backed_up' => ['members', 'pricing_plans', 'member_plans', 'transactions'],
             'checksum' => $checksum,
-            'created_by' => $request->input('created_by', 'Super Admin'),
+            'created_by' => $request->user()?->name ?? 'Owner',
         ]);
 
         // Audit Log entry
         AuditLogController::log(
             $tenantId,
-            $request->input('created_by', 'Super Admin'),
+            $request->user()?->name ?? 'Owner',
             'SYSTEM_BACKUP_CREATED',
             'SystemBackup',
             (string) $backup->id,
@@ -128,10 +119,10 @@ class BackupController extends Controller
      */
     public function download(Request $request, $id)
     {
-        $tenantId = $request->get('tenant_id');
+        $tenantId = app('tenant')->id;
         $backup = SystemBackup::where('tenant_id', $tenantId)->where('id', $id)->first();
 
-        if (!$backup) {
+        if (! $backup) {
             return response()->json(['success' => false, 'message' => 'Backup file record not found.'], 404);
         }
 
@@ -139,7 +130,7 @@ class BackupController extends Controller
         $tenantSlug = $tenant ? $tenant->slug : "tenant_{$tenantId}";
         $filePath = storage_path("app/backups/{$tenantSlug}/{$backup->filename}");
 
-        if (!File::exists($filePath)) {
+        if (! File::exists($filePath)) {
             // Re-generate file if missing physically
             $this->createBackupPayloadFile($tenantId, $backup->filename, $filePath);
         }
@@ -154,30 +145,11 @@ class BackupController extends Controller
      */
     public function restore(Request $request, $id = null)
     {
-        $tenantId = $request->get('tenant_id');
-        $backupId = $id ?? $request->input('backup_id');
-
-        $backup = SystemBackup::where('tenant_id', $tenantId)->where('id', $backupId)->first();
-
-        AuditLogController::log(
-            $tenantId,
-            $request->input('restored_by', 'Super Admin'),
-            'SYSTEM_BACKUP_RESTORED',
-            'SystemBackup',
-            (string) ($backup ? $backup->id : 0),
-            "Verified and restored system state from backup point " . ($backup ? $backup->filename : "Snapshot #{$backupId}")
-        );
-
         return response()->json([
-            'status' => 'success',
-            'success' => true,
-            'message' => 'System backup snapshot verified and successfully restored to database state!',
-            'data' => [
-                'backup_id' => $backupId,
-                'restored_at' => date('Y-m-d H:i:s'),
-                'status' => 'verified_restored',
-            ]
-        ]);
+            'status' => 'error',
+            'success' => false,
+            'message' => 'Snapshot restore is not automated yet. Use the hosting database backup or a reviewed restore procedure.',
+        ], 501);
     }
 
     /**
@@ -185,7 +157,7 @@ class BackupController extends Controller
      */
     public function destroy(Request $request, $id)
     {
-        $tenantId = $request->get('tenant_id');
+        $tenantId = app('tenant')->id;
         $backup = SystemBackup::where('tenant_id', $tenantId)->where('id', $id)->first();
 
         if ($backup) {
@@ -205,31 +177,11 @@ class BackupController extends Controller
         ]);
     }
 
-    private function seedInitialBackup($tenantId)
-    {
-        $membersCount = Member::where('tenant_id', $tenantId)->count();
-        $plansCount = PricingPlan::where('tenant_id', $tenantId)->count();
-        $transCount = Transaction::where('tenant_id', $tenantId)->count();
-
-        SystemBackup::create([
-            'tenant_id' => $tenantId,
-            'filename' => 'fitcloud_initial_auto_backup.json',
-            'file_size' => 1048576, // 1.0 MB
-            'type' => 'scheduled',
-            'status' => 'completed',
-            'record_count' => $membersCount + $plansCount + $transCount,
-            'tables_backed_up' => ['members', 'pricing_plans', 'member_plans', 'transactions'],
-            'checksum' => md5('fitcloud_initial_snapshot'),
-            'created_by' => 'System Automated Scheduler',
-            'created_at' => now()->subHours(6),
-        ]);
-    }
-
     private function createBackupPayloadFile($tenantId, $filename, $filePath)
     {
         $tenant = Tenant::find($tenantId);
         $directory = dirname($filePath);
-        if (!File::exists($directory)) {
+        if (! File::exists($directory)) {
             File::makeDirectory($directory, 0755, true);
         }
 
@@ -242,7 +194,7 @@ class BackupController extends Controller
             'data' => [
                 'members' => $members->toArray(),
                 'plans' => $pricingPlans->toArray(),
-            ]
+            ],
         ];
 
         File::put($filePath, json_encode($payload, JSON_PRETTY_PRINT));

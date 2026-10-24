@@ -15,11 +15,7 @@ class AuditLogController extends Controller
      */
     public function auditLogs(Request $request)
     {
-        $tenantId = $request->get('tenant_id') ?? \App\Models\Tenant::first()?->id ?? 1;
-
-        if (AuditLog::where('tenant_id', $tenantId)->count() === 0) {
-            $this->seedInitialAuditLogs($tenantId);
-        }
+        $tenantId = app('tenant')->id;
 
         $query = AuditLog::where('tenant_id', $tenantId)->latest();
 
@@ -35,12 +31,12 @@ class AuditLogController extends Controller
 
         // Search filter (keyword search on description, user_name, or action)
         if ($request->filled('search')) {
-            $search = '%' . trim($request->input('search')) . '%';
+            $search = '%'.trim($request->input('search')).'%';
             $query->where(function ($q) use ($search) {
                 $q->where('description', 'like', $search)
-                  ->orWhere('user_name', 'like', $search)
-                  ->orWhere('action', 'like', $search)
-                  ->orWhere('target_id', 'like', $search);
+                    ->orWhere('user_name', 'like', $search)
+                    ->orWhere('action', 'like', $search)
+                    ->orWhere('target_id', 'like', $search);
             });
         }
 
@@ -75,7 +71,7 @@ class AuditLogController extends Controller
      */
     public function export(Request $request)
     {
-        $tenantId = $request->get('tenant_id') ?? \App\Models\Tenant::first()?->id ?? 1;
+        $tenantId = app('tenant')->id;
 
         $query = AuditLog::where('tenant_id', $tenantId)->latest();
 
@@ -84,15 +80,15 @@ class AuditLogController extends Controller
         }
 
         if ($request->filled('search')) {
-            $search = '%' . trim($request->input('search')) . '%';
+            $search = '%'.trim($request->input('search')).'%';
             $query->where(function ($q) use ($search) {
                 $q->where('description', 'like', $search)
-                  ->orWhere('user_name', 'like', $search);
+                    ->orWhere('user_name', 'like', $search);
             });
         }
 
         $logs = $query->get();
-        $filename = 'audit_logs_' . date('Y_m_d_His') . '.csv';
+        $filename = 'audit_logs_'.date('Y_m_d_His').'.csv';
 
         $response = new StreamedResponse(function () use ($logs) {
             $handle = fopen('php://output', 'w');
@@ -110,7 +106,7 @@ class AuditLogController extends Controller
                 'Target ID',
                 'Description',
                 'Previous State',
-                'New State'
+                'New State',
             ]);
 
             foreach ($logs as $log) {
@@ -158,7 +154,7 @@ class AuditLogController extends Controller
      */
     public function accountsSummary(Request $request)
     {
-        $tenantId = $request->get('tenant_id');
+        $tenantId = app('tenant')->id;
 
         $totalApprovedVolume = Transaction::where('tenant_id', $tenantId)
             ->whereIn('status', ['successful', 'approved'])
@@ -181,67 +177,7 @@ class AuditLogController extends Controller
                 'total_approved_revenue' => (float) $totalApprovedVolume,
                 'pending_revenue' => (float) $pendingVolume,
                 'breakdown_by_payment_method' => $byPaymentMethod,
-            ]
+            ],
         ]);
-    }
-
-    private function seedInitialAuditLogs($tenantId)
-    {
-        $sampleLogs = [
-            [
-                'user_name' => 'Super Admin',
-                'action' => 'SYSTEM_BACKUP_CREATED',
-                'target_type' => 'SystemBackup',
-                'target_id' => '1',
-                'description' => 'Created full manual system database snapshot (fitcloud_backup_polanfit-fitness_2026-09-01.json).',
-                'previous_state' => null,
-                'new_state' => ['status' => 'completed', 'record_count' => 3919],
-                'created_at' => now()->subMinutes(15),
-            ],
-            [
-                'user_name' => 'Gabriel Omokpo',
-                'action' => 'PLAN_EXTENDED',
-                'target_type' => 'MemberPlan',
-                'target_id' => '104',
-                'description' => 'Extended subscription end date by 14 days for member #104 (Godspower Enwereuzor).',
-                'previous_state' => ['end_date' => '2026-09-15'],
-                'new_state' => ['end_date' => '2026-09-29', 'reason' => 'Complimentary promotion extension'],
-                'created_at' => now()->subHours(2),
-            ],
-            [
-                'user_name' => 'Receptionist Sarah',
-                'action' => 'PAYMENT_APPROVED',
-                'target_type' => 'Transaction',
-                'target_id' => 'TRX-88291',
-                'description' => 'Approved manual POS payment receipt of ₦25,000 for Monthly VIP Membership renewal.',
-                'previous_state' => ['status' => 'pending'],
-                'new_state' => ['status' => 'approved', 'payment_method' => 'pos'],
-                'created_at' => now()->subHours(5),
-            ],
-            [
-                'user_name' => 'Super Admin',
-                'action' => 'SETTING_UPDATED',
-                'target_type' => 'GymSettings',
-                'target_id' => '1',
-                'description' => 'Updated primary theme branding colors to #fa6a2e and set default currency to NGN.',
-                'previous_state' => ['currency' => 'USD'],
-                'new_state' => ['currency' => 'NGN'],
-                'created_at' => now()->subDays(1),
-            ],
-            [
-                'user_name' => 'Gabriel Omokpo',
-                'action' => 'MEMBER_CREATED',
-                'target_type' => 'Member',
-                'target_id' => '574',
-                'description' => 'Registered new gym member Yusuf Olajide (UID: 23bf2361-72c3-4108) with active access badge.',
-                'previous_state' => null,
-                'new_state' => ['fullName' => 'Yusuf Olajide', 'status' => 'ACTIVE'],
-                'created_at' => now()->subDays(2),
-            ],
-        ];
-
-        foreach ($sampleLogs as $log) {
-            AuditLog::create(array_merge($log, ['tenant_id' => $tenantId]));
-        }
     }
 }

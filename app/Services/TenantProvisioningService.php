@@ -9,24 +9,30 @@ use App\Models\TenantUser;
 use App\Models\ThemeSetting;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 class TenantProvisioningService
 {
     /**
-     * Provision a brand-new gym tenant along with features, theme, and admin account.
+     * Provision a brand-new gym tenant for an authenticated owner.
      */
-    public function provisionTenant(array $data): array
+    public function provisionTenant(array $data, TenantUser $owner): array
     {
-        return DB::transaction(function () use ($data) {
+        return DB::transaction(function () use ($data, $owner) {
+            $owner = TenantUser::whereKey($owner->id)->lockForUpdate()->firstOrFail();
+
+            if ($owner->tenant_id) {
+                throw new RuntimeException('This account is already attached to a gym.');
+            }
+
             $slug = Str::slug($data['gym_name']);
 
             // Ensure unique slug
             $originalSlug = $slug;
             $count = 1;
             while (Tenant::where('slug', $slug)->exists()) {
-                $slug = $originalSlug . '-' . $count++;
+                $slug = $originalSlug.'-'.$count++;
             }
 
             // 1. Create Tenant
@@ -44,7 +50,7 @@ class TenantProvisioningService
             ]);
 
             // 2. Bind License
-            if (!empty($data['license_key'])) {
+            if (! empty($data['license_key'])) {
                 $license = License::where('key', $data['license_key'])->first();
                 if ($license) {
                     $license->update([
@@ -54,24 +60,12 @@ class TenantProvisioningService
                 }
             }
 
-            // 3. Create or Link Tenant Owner/Admin User
-            $owner = TenantUser::where('email', $data['admin_email'])->first();
-            if ($owner) {
-                $owner->update([
-                    'tenant_id' => $tenant->id,
-                    'name' => $data['admin_name'],
-                    'password' => Hash::make($data['admin_password']),
-                    'role' => 'owner',
-                ]);
-            } else {
-                $owner = TenantUser::create([
-                    'tenant_id' => $tenant->id,
-                    'name' => $data['admin_name'],
-                    'email' => $data['admin_email'],
-                    'password' => Hash::make($data['admin_password']),
-                    'role' => 'owner',
-                ]);
-            }
+            // 3. Attach the already-authenticated owner without resetting their password.
+            $owner->update([
+                'tenant_id' => $tenant->id,
+                'name' => $data['admin_name'],
+                'role' => 'owner',
+            ]);
 
             // 4. Provision Selected Features
             $featuresList = [
@@ -113,19 +107,16 @@ class TenantProvisioningService
             ]);
 
             // 6. Generate Sanctum Auth Token for immediate login
-            $token = $owner->createToken('auth-token', ['tenant_id' => $tenant->id])->plainTextToken;
-
-            $adminAppBase = env('ADMIN_APP_URL', 'http://localhost:3001');
-            $memberAppBase = env('MEMBER_APP_URL', 'http://localhost:3002');
+            $token = $owner->createToken('auth-token', ['staff'])->plainTextToken;
 
             return [
                 'tenant' => $tenant,
                 'owner' => $owner,
                 'token' => $token,
                 'urls' => [
-                    'member_app' => "{$memberAppBase}?tenant={$tenant->slug}",
-                    'admin_app' => "{$adminAppBase}?tenant={$tenant->slug}",
-                ]
+                    'member_app' => $tenant->memberPortalUrl(),
+                    'admin_app' => $tenant->adminConsoleUrl(),
+                ],
             ];
         });
     }

@@ -6,9 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\AttendanceLog;
 use App\Models\Campaign;
 use App\Models\Member;
+use App\Models\TenantUser;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 class CampaignController extends Controller
@@ -18,6 +19,14 @@ class CampaignController extends Controller
      */
     public function leaderboard(Request $request)
     {
+        if (! app()->bound('tenant')) {
+            return response()->json([
+                'status' => 'error',
+                'success' => false,
+                'message' => 'Gym not found.',
+            ], 404);
+        }
+
         $campaign = Campaign::where('is_active', true)->latest()->first()
             ?? Campaign::latest()->first();
 
@@ -43,18 +52,24 @@ class CampaignController extends Controller
         $members = Member::whereIn('id', $memberIds)->get()->keyBy('id');
 
         $pointsPerCheckIn = $campaign ? ($campaign->points_per_checkin ?? 10) : 10;
+        $includeEmail = $request->user() instanceof TenantUser;
 
-        $top10 = $standings->map(function ($item, $index) use ($members, $pointsPerCheckIn) {
+        $top10 = $standings->map(function ($item, $index) use ($members, $pointsPerCheckIn, $includeEmail) {
             $member = $members->get($item->member_id);
-            return [
+            $row = [
                 'rank' => $index + 1,
                 'memberId' => $item->member_id,
-                'memberUid' => $member ? ($member->uuid ?? (string)$member->id) : null,
-                'fullName' => $member ? "{$member->first_name} {$member->last_name}" : 'Member #' . $item->member_id,
+                'memberUid' => $member ? ($member->uuid ?? (string) $member->id) : null,
+                'fullName' => $member ? "{$member->first_name} {$member->last_name}" : 'Member #'.$item->member_id,
                 'checkInCount' => (int) $item->check_in_count,
                 'points' => (int) $item->check_in_count * $pointsPerCheckIn,
-                'email' => $member ? $member->email : null,
             ];
+
+            if ($includeEmail) {
+                $row['email'] = $member?->email;
+            }
+
+            return $row;
         });
 
         $campaignInfo = $campaign ? [
@@ -79,7 +94,7 @@ class CampaignController extends Controller
             'data' => array_merge($campaignInfo, [
                 'campaign' => $campaignInfo,
                 'top10' => $top10,
-            ])
+            ]),
         ]);
     }
 
@@ -106,16 +121,26 @@ class CampaignController extends Controller
         $startDate = $validated['start_date'] ?? $validated['startDate'] ?? null;
         $endDate = $validated['end_date'] ?? $validated['endDate'] ?? null;
         $isActive = isset($validated['is_active'])
-            ? (bool)$validated['is_active']
+            ? (bool) $validated['is_active']
             : (($validated['status'] ?? 'ACTIVE') === 'ACTIVE');
 
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
+
+        if (! $tenant) {
+            return response()->json([
+                'status' => 'error',
+                'success' => false,
+                'message' => 'Gym not found.',
+            ], 404);
+        }
+
         $campaign = Campaign::updateOrCreate(
-            ['tenant_id' => 1],
+            ['tenant_id' => $tenant->id],
             [
                 'name' => $title,
                 'points_per_checkin' => $points,
-                'start_date' => $startDate ? \Illuminate\Support\Carbon::parse($startDate) : null,
-                'end_date' => $endDate ? \Illuminate\Support\Carbon::parse($endDate) : null,
+                'start_date' => $startDate ? Carbon::parse($startDate) : null,
+                'end_date' => $endDate ? Carbon::parse($endDate) : null,
                 'is_active' => $isActive,
             ]
         );
@@ -171,19 +196,19 @@ class CampaignController extends Controller
         $logUuid = (string) Str::uuid();
         $targetStr = implode(', ', array_slice($recipients, 0, 10));
         if (count($recipients) > 10) {
-            $targetStr .= ' and ' . (count($recipients) - 10) . ' others';
+            $targetStr .= ' and '.(count($recipients) - 10).' others';
         }
 
         DB::table('campaign_logs')->insert([
             'uuid' => $logUuid,
-            'tenant_id' => 1,
+            'tenant_id' => app('tenant')->id,
             'subject' => $validated['subject'],
             'body' => $validated['body'],
             'target_emails' => implode(', ', $recipients),
             'sent_to_count' => count($recipients),
             'status' => 'SENT',
-            'result_details' => 'Broadcast dispatched to ' . count($recipients) . ' recipient(s).',
-            'task_id' => 'TASK-' . strtoupper(Str::random(8)),
+            'result_details' => 'Broadcast dispatched to '.count($recipients).' recipient(s).',
+            'task_id' => 'TASK-'.strtoupper(Str::random(8)),
             'failed_emails' => null,
             'created_at' => now(),
             'updated_at' => now(),
@@ -192,7 +217,7 @@ class CampaignController extends Controller
         return response()->json([
             'status' => 'success',
             'success' => true,
-            'message' => 'Email blast broadcast successfully sent to ' . count($recipients) . ' recipient(s)!',
+            'message' => 'Email blast broadcast successfully sent to '.count($recipients).' recipient(s)!',
             'data' => [
                 'logUuid' => $logUuid,
                 'sentCount' => count($recipients),
@@ -206,7 +231,7 @@ class CampaignController extends Controller
     public function getLogs(Request $request)
     {
         $logs = DB::table('campaign_logs')
-            ->where('tenant_id', 1)
+            ->where('tenant_id', app('tenant')->id)
             ->latest()
             ->paginate(50);
 
@@ -241,8 +266,11 @@ class CampaignController extends Controller
      */
     public function syncLog(Request $request, $uuid)
     {
-        $log = DB::table('campaign_logs')->where('uuid', $uuid)->first();
-        if (!$log) {
+        $log = DB::table('campaign_logs')
+            ->where('tenant_id', app('tenant')->id)
+            ->where('uuid', $uuid)
+            ->first();
+        if (! $log) {
             return response()->json([
                 'status' => 'error',
                 'success' => false,
@@ -250,11 +278,14 @@ class CampaignController extends Controller
             ], 404);
         }
 
-        DB::table('campaign_logs')->where('uuid', $uuid)->update([
-            'status' => 'DELIVERED',
-            'result_details' => 'Delivery confirmed by mail gateway server.',
-            'updated_at' => now(),
-        ]);
+        DB::table('campaign_logs')
+            ->where('tenant_id', app('tenant')->id)
+            ->where('uuid', $uuid)
+            ->update([
+                'status' => 'DELIVERED',
+                'result_details' => 'Delivery confirmed by mail gateway server.',
+                'updated_at' => now(),
+            ]);
 
         return response()->json([
             'status' => 'success',

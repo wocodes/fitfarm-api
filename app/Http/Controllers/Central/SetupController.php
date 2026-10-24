@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Central;
 
 use App\Http\Controllers\Controller;
+use App\Models\TenantUser;
 use App\Services\LicenseService;
 use App\Services\TenantProvisioningService;
 use Illuminate\Http\Request;
@@ -10,6 +11,7 @@ use Illuminate\Http\Request;
 class SetupController extends Controller
 {
     protected LicenseService $licenseService;
+
     protected TenantProvisioningService $provisioningService;
 
     public function __construct(LicenseService $licenseService, TenantProvisioningService $provisioningService)
@@ -27,13 +29,30 @@ class SetupController extends Controller
             'key' => 'required|string',
         ]);
 
+        $user = $request->user();
+
+        if (! $user instanceof TenantUser) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Sign in before verifying a license key.',
+            ], 403);
+        }
+
         $result = $this->licenseService->verifyKey($request->input('key'));
 
-        if (!$result['valid']) {
+        if (! $result['valid']) {
             return response()->json([
                 'success' => false,
                 'message' => $result['message'],
             ], 422);
+        }
+
+        if ($result['license']->user_email
+            && strtolower($result['license']->user_email) !== strtolower($user->email)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This license key belongs to a different account.',
+            ], 403);
         }
 
         return response()->json([
@@ -64,15 +83,46 @@ class SetupController extends Controller
         ]);
 
         // First verify license key
+        $user = $request->user();
+
+        if (! $user instanceof TenantUser) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Sign in before completing setup.',
+            ], 403);
+        }
+
+        if ($user->tenant_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This account is already attached to a gym.',
+            ], 422);
+        }
+
+        if (strtolower($validated['admin_email']) !== strtolower($user->email)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The owner email must match the signed-in account.',
+            ], 422);
+        }
+
         $verify = $this->licenseService->verifyKey($validated['license_key']);
-        if (!$verify['valid']) {
+        if (! $verify['valid']) {
             return response()->json([
                 'success' => false,
                 'message' => $verify['message'],
             ], 422);
         }
 
-        $result = $this->provisioningService->provisionTenant($validated);
+        if ($verify['license']->user_email
+            && strtolower($verify['license']->user_email) !== strtolower($user->email)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This license key belongs to a different account.',
+            ], 403);
+        }
+
+        $result = $this->provisioningService->provisionTenant($validated, $user);
 
         return response()->json([
             'success' => true,

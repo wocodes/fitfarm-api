@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\Member;
 use App\Models\PricingPlan;
 use App\Models\Tenant;
-use App\Models\TenantUser;
 use App\Models\Transaction;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -13,6 +12,7 @@ use Illuminate\Support\Str;
 class PaystackService
 {
     protected string $secretKey;
+
     protected string $baseUrl = 'https://api.paystack.co';
 
     public function __construct()
@@ -56,7 +56,7 @@ class PaystackService
      */
     public function initializeTransaction(Member $member, PricingPlan $plan, Tenant $tenant): array
     {
-        $reference = 'FC-TX-' . strtoupper(Str::random(10));
+        $reference = 'FC-TX-'.strtoupper(Str::random(10));
         $amountInKobo = (int) ($plan->price * 100);
 
         // Platform fee calculation (1%)
@@ -80,19 +80,19 @@ class PaystackService
             'status' => 'pending',
         ]);
 
-        $memberAppBase = env('MEMBER_APP_URL', 'http://localhost:3002');
+        $callbackUrl = $tenant->memberPortalUrl();
 
         $payload = [
             'email' => $member->email ?? "member{$member->id}@polanfit.com",
             'amount' => $amountInKobo,
             'reference' => $reference,
-            'callback_url' => "{$memberAppBase}/dashboard?tenant={$tenant->slug}&payment=success",
+            'callback_url' => "{$callbackUrl}&payment=success",
             'metadata' => [
                 'tenant_uuid' => $tenant->uuid,
                 'member_uuid' => $member->uuid,
                 'pricing_plan_id' => $plan->id,
                 'transaction_id' => $transaction->id,
-            ]
+            ],
         ];
 
         // Attach subaccount split if tenant is on free_tier with Paystack subaccount
@@ -115,6 +115,31 @@ class PaystackService
         return [
             'success' => false,
             'message' => $response->json('message') ?? 'Failed to initialize Paystack transaction.',
+        ];
+    }
+
+    /**
+     * Verify a transaction reference with Paystack.
+     */
+    public function verifyTransaction(string $reference): array
+    {
+        $response = Http::withToken($this->secretKey)
+            ->get("{$this->baseUrl}/transaction/verify/{$reference}");
+
+        if ($response->successful() && $response->json('status')) {
+            return [
+                'success' => true,
+                'status' => $response->json('data.status'),
+                'amount' => $response->json('data.amount'),
+                'reference' => $response->json('data.reference'),
+                'authorization' => $response->json('data.authorization'),
+                'data' => $response->json('data'),
+            ];
+        }
+
+        return [
+            'success' => false,
+            'message' => $response->json('message') ?? 'Unable to verify Paystack transaction.',
         ];
     }
 }

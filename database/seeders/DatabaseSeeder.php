@@ -3,212 +3,86 @@
 namespace Database\Seeders;
 
 use App\Models\License;
-use App\Models\Permission;
 use App\Models\TenantUser;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Permission;
 
 class DatabaseSeeder extends Seeder
 {
     /**
-     * Seed the application's database.
+     * Seed the minimum non-sensitive data required by the application.
+     *
+     * Production administrators must be bootstrapped from environment
+     * variables. This seeder never creates known demo accounts in production.
      */
     public function run(): void
     {
-        // 1. Seed System Master Permissions Table
         $permissions = [
-            [
-                'key' => 'MANAGE_ADMINS',
-                'label' => 'Manage Admins & Staff',
-                'description' => 'Create, update, and manage admin users & permissions',
-                'category' => 'Administration',
-            ],
-            [
-                'key' => 'MANAGE_MEMBERS',
-                'label' => 'Manage Members',
-                'description' => 'Register, edit, view, and manage gym members',
-                'category' => 'Member Management',
-            ],
-            [
-                'key' => 'VIEW_TRANSACTIONS',
-                'label' => 'View Financial Transactions',
-                'description' => 'Access payment records and revenue reports',
-                'category' => 'Finance',
-            ],
-            [
-                'key' => 'MANAGE_TRANSACTIONS',
-                'label' => 'Manage Transactions',
-                'description' => 'Approve, reject, or refund financial payments',
-                'category' => 'Finance',
-            ],
-            [
-                'key' => 'MANAGE_PRICING',
-                'label' => 'Manage Pricing & Plans',
-                'description' => 'Create and modify membership plans & pricing',
-                'category' => 'Plans & Subscriptions',
-            ],
-            [
-                'key' => 'MANAGE_CHECKINS',
-                'label' => 'Manage Check-in Kiosk',
-                'description' => 'Access check-in terminal and view attendance logs',
-                'category' => 'Operations',
-            ],
-            [
-                'key' => 'MANAGE_ACCOUNTS',
-                'label' => 'Manage Accounts & Audits',
-                'description' => 'Configure gym bank accounts and inspect audit logs',
-                'category' => 'Finance & Compliance',
-            ],
-            [
-                'key' => 'MANAGE_SETTINGS',
-                'label' => 'Manage Gym Settings',
-                'description' => 'Configure hardware, QR scanners, and gym info',
-                'category' => 'System Settings',
-            ],
-            [
-                'key' => 'PAUSE_MEMBERS',
-                'label' => 'Pause/Unpause Subscriptions',
-                'description' => 'Freeze or resume active member subscriptions',
-                'category' => 'Plans & Subscriptions',
-            ],
+            ['key' => 'MANAGE_ADMINS', 'label' => 'Manage Admins & Staff', 'category' => 'Administration'],
+            ['key' => 'MANAGE_MEMBERS', 'label' => 'Manage Members', 'category' => 'Member Management'],
+            ['key' => 'VIEW_TRANSACTIONS', 'label' => 'View Financial Transactions', 'category' => 'Finance'],
+            ['key' => 'MANAGE_TRANSACTIONS', 'label' => 'Manage Transactions', 'category' => 'Finance'],
+            ['key' => 'MANAGE_PRICING', 'label' => 'Manage Pricing & Plans', 'category' => 'Plans & Subscriptions'],
+            ['key' => 'MANAGE_CHECKINS', 'label' => 'Manage Check-in Kiosk', 'category' => 'Operations'],
+            ['key' => 'MANAGE_ACCOUNTS', 'label' => 'Manage Accounts & Audits', 'category' => 'Finance & Compliance'],
+            ['key' => 'MANAGE_SETTINGS', 'label' => 'Manage Gym Settings', 'category' => 'System Settings'],
+            ['key' => 'PAUSE_MEMBERS', 'label' => 'Pause/Unpause Subscriptions', 'category' => 'Plans & Subscriptions'],
         ];
 
-        foreach ($permissions as $perm) {
-            \Spatie\Permission\Models\Permission::firstOrCreate(
-                ['name' => $perm['key'], 'guard_name' => 'sanctum'],
+        foreach ($permissions as $permission) {
+            Permission::firstOrCreate(
+                ['name' => $permission['key'], 'guard_name' => 'sanctum'],
                 [
-                    'label' => $perm['label'],
-                    'description' => $perm['description'],
-                    'category' => $perm['category'],
+                    'label' => $permission['label'],
+                    'description' => $permission['label'],
+                    'category' => $permission['category'],
                 ]
             );
         }
 
-        // 2. Ensure default tenant exists
-        $tenant = \App\Models\Tenant::firstOrCreate(
-            ['id' => 1],
-            [
-                'name' => 'PolanFit Fitness',
-                'slug' => 'polanfit-fitness',
-                'status' => 'active',
-            ]
-        );
+        $this->seedSuperAdmin();
+        $this->seedDevelopmentLicense();
+    }
 
-        // 3. Create Legacy Migrated Admins (Extracted from MySQL smartpass database)
-        $legacyAdmins = [
-            [
-                'tenant_id' => 1,
-                'name' => 'Super Admin',
-                'email' => 'admin@polanfit.com',
-                'phone' => '07011223341',
-                'gender' => 'Male',
-                'password' => Hash::make('admin123@'),
-                'role' => 'owner',
-                'permissions' => array_column($permissions, 'key'),
-            ],
-            [
-                'tenant_id' => 1,
-                'name' => 'Alpha Engineer',
-                'email' => 'alpha_engineer@polanfit.com',
-                'phone' => '08010000000',
-                'gender' => 'Male',
-                'password' => Hash::make('AlphaEngineer2026!'),
-                'role' => 'owner',
-                'permissions' => array_column($permissions, 'key'),
-            ],
-            [
-                'tenant_id' => 1,
-                'name' => 'Kelechi Sunday',
-                'email' => 'kelechisunday20@gmail.com',
-                'phone' => '08151348800',
-                'gender' => 'Male',
-                'password' => Hash::make('Password123!'),
-                'role' => 'admin',
-                'permissions' => ['MANAGE_TRANSACTIONS', 'MANAGE_CHECKINS', 'MANAGE_MEMBERS', 'VIEW_TRANSACTIONS'],
-            ],
-            [
-                'tenant_id' => 1,
-                'name' => 'William Kamal',
-                'email' => 'kamal.misc@gmail.com',
-                'phone' => '07068535208',
-                'gender' => 'Male',
-                'password' => Hash::make('Password123!'),
-                'role' => 'admin',
-                'permissions' => ['MANAGE_TRANSACTIONS', 'MANAGE_CHECKINS', 'MANAGE_MEMBERS', 'VIEW_TRANSACTIONS'],
-            ],
-            [
-                'tenant_id' => 1,
-                'name' => 'Onome Ataro',
-                'email' => 'ataro.maro@gmail.com',
-                'phone' => '08131623907',
-                'gender' => 'Female',
-                'password' => Hash::make('Password123!'),
-                'role' => 'admin',
-                'permissions' => ['MANAGE_TRANSACTIONS', 'MANAGE_CHECKINS', 'MANAGE_MEMBERS', 'VIEW_TRANSACTIONS'],
-            ],
-            [
-                'tenant_id' => 1,
-                'name' => 'Foreman Admin',
-                'email' => 'foreman@gmail.com',
-                'phone' => '07011223341',
-                'gender' => 'Male',
-                'password' => Hash::make('Password123!'),
-                'role' => 'admin',
-                'permissions' => ['MANAGE_CHECKINS', 'MANAGE_MEMBERS', 'VIEW_TRANSACTIONS'],
-            ],
-            [
-                'tenant_id' => 1,
-                'name' => 'Janet Peter',
-                'email' => 'adedojajanet8@gmail.com',
-                'phone' => '09069986117',
-                'gender' => 'Female',
-                'password' => Hash::make('Password123!'),
-                'role' => 'admin',
-                'permissions' => ['MANAGE_TRANSACTIONS', 'MANAGE_CHECKINS', 'MANAGE_MEMBERS', 'VIEW_TRANSACTIONS'],
-            ],
-        ];
+    /**
+     * Create the platform administrator only when explicit credentials are supplied.
+     */
+    private function seedSuperAdmin(): void
+    {
+        $email = env('SUPER_ADMIN_EMAIL');
+        $password = env('SUPER_ADMIN_PASSWORD');
 
-        foreach ($legacyAdmins as $adminData) {
-            $perms = $adminData['permissions'];
-            unset($adminData['permissions']);
-
-            $user = TenantUser::updateOrCreate(
-                ['email' => strtolower($adminData['email'])],
-                $adminData
+        if (! $email || ! $password) {
+            $this->command?->warn(
+                'SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD are not set; no platform administrator was created.'
             );
 
-            setPermissionsTeamId($user->tenant_id ?? 1);
-
-            // Assign Spatie Role & Permissions
-            $role = \Spatie\Permission\Models\Role::firstOrCreate([
-                'name' => $adminData['role'],
-                'guard_name' => 'sanctum',
-                'tenant_id' => $user->tenant_id ?? 1,
-            ]);
-
-            $user->syncPermissions($perms);
-            $user->assignRole($role);
+            return;
         }
 
-        // 3. Create Platform Super Admin
-        $superAdminUser = TenantUser::updateOrCreate(
-            ['email' => 'superadmin@fitcloud.io'],
+        TenantUser::updateOrCreate(
+            ['email' => strtolower($email)],
             [
-                'name' => 'FitCloud Admin',
-                'password' => Hash::make('Secret123!'),
+                'tenant_id' => null,
+                'name' => env('SUPER_ADMIN_NAME', 'Platform Admin'),
+                'password' => Hash::make($password),
                 'role' => 'ROLE_SUPER_ADMIN',
             ]
         );
-        setPermissionsTeamId(1);
-        $superAdminRole = \Spatie\Permission\Models\Role::firstOrCreate([
-            'name' => 'ROLE_SUPER_ADMIN',
-            'guard_name' => 'sanctum',
-            'tenant_id' => 1,
-        ]);
-        $superAdminUser->syncPermissions(array_column($permissions, 'key'));
-        $superAdminUser->assignRole($superAdminRole);
 
-        // 4. Create Demo License Key for Setup Wizard testing
+        $this->command?->info("Platform administrator ensured for {$email}.");
+    }
+
+    /**
+     * The demo license is only available outside production.
+     */
+    private function seedDevelopmentLicense(): void
+    {
+        if (app()->environment('production')) {
+            return;
+        }
+
         License::updateOrCreate(
             ['key' => 'FC-DEMO-2026-KEYS'],
             [

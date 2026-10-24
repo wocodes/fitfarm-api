@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Member;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Hash;
 
 class MemberController extends Controller
 {
@@ -18,12 +20,12 @@ class MemberController extends Controller
         if ($search = trim($request->input('search') ?? '')) {
             $query->where(function ($q) use ($search) {
                 $q->where('first_name', 'like', "%{$search}%")
-                  ->orWhere('last_name', 'like', "%{$search}%")
-                  ->orWhereRaw("(first_name || ' ' || last_name) LIKE ?", ["%{$search}%"])
-                  ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", ["%{$search}%"])
-                  ->orWhere('email', 'like', "%{$search}%")
-                  ->orWhere('phone', 'like', "%{$search}%")
-                  ->orWhere('uuid', 'like', "%{$search}%");
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhereRaw("(first_name || ' ' || last_name) LIKE ?", ["%{$search}%"])
+                    ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", ["%{$search}%"])
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%")
+                    ->orWhere('uuid', 'like', "%{$search}%");
             });
         }
 
@@ -36,7 +38,7 @@ class MemberController extends Controller
                 $query->whereHas('activePaidPlans', function ($q) {
                     $q->where('status', 'paused');
                 });
-            } else if ($status === 'EXPIRED') {
+            } elseif ($status === 'EXPIRED') {
                 $query->where(function ($q) {
                     $q->whereHas('latestPaidPlan', function ($lq) {
                         $lq->where('status', 'expired');
@@ -44,15 +46,15 @@ class MemberController extends Controller
                         $rq->where('status', 'expired');
                     });
                 });
-            } else if ($status === 'NOT_YET_REGISTERED') {
+            } elseif ($status === 'NOT_YET_REGISTERED') {
                 $query->whereDoesntHave('plans');
-            } else if ($status === 'BIOMETRICS' || $status === 'REGISTERED_BIOMETRICS') {
+            } elseif ($status === 'BIOMETRICS' || $status === 'REGISTERED_BIOMETRICS') {
                 $query->whereNotNull('biometric_hash')->where('biometric_hash', '!=', '');
-            } else if ($status === 'NO_CHECKINS_7_DAYS') {
+            } elseif ($status === 'NO_CHECKINS_7_DAYS') {
                 $query->whereDoesntHave('checkIns', function ($q) {
                     $q->where('created_at', '>=', now()->subDays(7));
                 });
-            } else if ($status === 'REGISTERED' || $status === 'ACTIVE') {
+            } elseif ($status === 'REGISTERED' || $status === 'ACTIVE') {
                 $query->whereHas('plans');
             }
         }
@@ -68,29 +70,32 @@ class MemberController extends Controller
             // 1. Workout Subscription Plan(s) (excluding System/Registration fee plans, concatenating if multiple active/paused)
             if ($member->activePaidPlans->isNotEmpty()) {
                 $planNames = $member->activePaidPlans->map(function ($plan) {
-                    if (!$plan->pricingPlan) return null;
+                    if (! $plan->pricingPlan) {
+                        return null;
+                    }
                     $name = $plan->pricingPlan->formatted_name;
                     if ($plan->status === 'paused') {
                         $name .= ' (⏸)';
                     }
+
                     return $name;
                 })->filter()->unique()->implode(', ');
 
                 $planName = $planNames ?: null;
-            } else if ($member->latestPaidPlan && $member->latestPaidPlan->pricingPlan) {
-                $planName = $member->latestPaidPlan->pricingPlan->formatted_name . ' - Expired';
+            } elseif ($member->latestPaidPlan && $member->latestPaidPlan->pricingPlan) {
+                $planName = $member->latestPaidPlan->pricingPlan->formatted_name.' - Expired';
             }
 
             // 2. Registration Status & Expiration
             if ($member->registrationPlan && $member->registrationPlan->pricingPlan) {
                 $expiresAt = $member->registrationPlan->expires_at;
-                if ($expiresAt && \Illuminate\Support\Carbon::parse($expiresAt)->isPast()) {
+                if ($expiresAt && Carbon::parse($expiresAt)->isPast()) {
                     $regStatus = 'EXPIRED';
                 } else {
                     $regStatus = 'REGISTERED';
                 }
                 $regExpiry = $expiresAt;
-            } else if ($member->activePaidPlan || $member->latestPaidPlan) {
+            } elseif ($member->activePaidPlan || $member->latestPaidPlan) {
                 $regStatus = 'REGISTERED';
                 $regExpiry = $member->activePaidPlan ? $member->activePaidPlan->expires_at : ($member->latestPaidPlan ? $member->latestPaidPlan->expires_at : null);
             }
@@ -100,18 +105,20 @@ class MemberController extends Controller
             $mArr['registration_source'] = $member->registration_source ?: 'Self (Web)';
             $mArr['registration_status'] = $regStatus;
             $mArr['registration_expiry_date'] = $regExpiry;
+
             return $mArr;
         };
 
         if ($perPage === 'all' || $perPage > 500) {
             $members = $query->get()->map($formatMemberData);
+
             return response()->json([
                 'success' => true,
                 'data' => $members,
             ]);
         }
 
-        $paginated = $query->paginate((int)$perPage);
+        $paginated = $query->paginate((int) $perPage);
         $paginated->getCollection()->transform($formatMemberData);
 
         return response()->json([
@@ -126,7 +133,7 @@ class MemberController extends Controller
     private function mapMemberPayload(Request $request): array
     {
         $input = $request->all();
-        
+
         $fields = [
             'first_name' => $input['first_name'] ?? $input['firstName'] ?? null,
             'last_name' => $input['last_name'] ?? $input['lastName'] ?? null,
@@ -154,7 +161,7 @@ class MemberController extends Controller
         ];
 
         // Filter out null values if updating or creating
-        return array_filter($fields, fn($val) => !is_null($val));
+        return array_filter($fields, fn ($val) => ! is_null($val));
     }
 
     /**
@@ -193,23 +200,23 @@ class MemberController extends Controller
         $user = $request->user();
         $adminName = 'Admin';
         if ($user) {
-            $adminName = $user->name ?: trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+            $adminName = $user->name ?: trim(($user->first_name ?? '').' '.($user->last_name ?? ''));
         }
         if (empty($adminName)) {
-            $adminName = 'Kelechi Sunday';
+            $adminName = 'Admin';
         }
 
-        $validated['registration_source'] = "Admin (" . $adminName . ")";
-        $validated['registration_status'] = 'REGISTERED';
-
-        $member = Member::create($validated);
-
-        // Generate password if requested or present
-        $words = ["Swift", "Eagle", "Mountain", "River", "Golden", "Lion", "Azure", "Flame", "Silent", "Shadow", "Royal", "Noble", "Strong", "Fit", "Bold"];
+        $words = ['Swift', 'Eagle', 'Mountain', 'River', 'Golden', 'Lion', 'Azure', 'Flame', 'Silent', 'Shadow', 'Royal', 'Noble', 'Strong', 'Fit', 'Bold'];
         $w1 = $words[array_rand($words)];
         $w2 = $words[array_rand($words)];
         $num = rand(10, 99);
         $tempPassword = $request->input('password') ?? "{$w1}{$w2}{$num}";
+
+        $validated['registration_source'] = 'Admin ('.$adminName.')';
+        $validated['registration_status'] = 'REGISTERED';
+        $validated['password'] = Hash::make($tempPassword);
+
+        $member = Member::create($validated);
 
         return response()->json([
             'success' => true,
@@ -227,9 +234,9 @@ class MemberController extends Controller
      */
     public function update(Request $request, string $identifier)
     {
-        $member = Member::where('uuid', $identifier)
-            ->orWhere('id', $identifier)
-            ->firstOrFail();
+        $member = Member::where(function ($query) use ($identifier) {
+            $query->where('uuid', $identifier)->orWhere('id', $identifier);
+        })->firstOrFail();
 
         $payload = $this->mapMemberPayload($request);
 
@@ -275,9 +282,9 @@ class MemberController extends Controller
      */
     public function destroy(string $identifier)
     {
-        $member = Member::where('uuid', $identifier)
-            ->orWhere('id', $identifier)
-            ->firstOrFail();
+        $member = Member::where(function ($query) use ($identifier) {
+            $query->where('uuid', $identifier)->orWhere('id', $identifier);
+        })->firstOrFail();
 
         $member->delete();
 
@@ -292,9 +299,9 @@ class MemberController extends Controller
      */
     public function toggleStatus(string $identifier)
     {
-        $member = Member::where('uuid', $identifier)
-            ->orWhere('id', $identifier)
-            ->firstOrFail();
+        $member = Member::where(function ($query) use ($identifier) {
+            $query->where('uuid', $identifier)->orWhere('id', $identifier);
+        })->firstOrFail();
 
         $member->status = strtolower($member->status) === 'active' ? 'inactive' : 'active';
         $member->save();
@@ -311,8 +318,9 @@ class MemberController extends Controller
      */
     public function show(string $identifier)
     {
-        $member = Member::where('uuid', $identifier)
-            ->orWhere('id', $identifier)
+        $member = Member::where(function ($query) use ($identifier) {
+            $query->where('uuid', $identifier)->orWhere('id', $identifier);
+        })
             ->with(['plans.pricingPlan', 'checkIns' => function ($q) {
                 $q->latest()->limit(10);
             }, 'transactions'])

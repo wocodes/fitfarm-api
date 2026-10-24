@@ -3,12 +3,12 @@
 namespace App\Http\Controllers\Central;
 
 use App\Http\Controllers\Controller;
+use App\Models\Tenant;
 use App\Models\TenantUser;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
-
+use App\Models\Terminal;
 use App\Services\LicenseService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
@@ -59,7 +59,7 @@ class AuthController extends Controller
                 'license_mode' => $license->mode,
                 'license_expires_at' => $license->expires_at ? $license->expires_at->toIso8601String() : null,
                 'license' => $license,
-            ]
+            ],
         ], 201);
     }
 
@@ -75,7 +75,7 @@ class AuthController extends Controller
 
         $user = TenantUser::where('email', $validated['email'])->first();
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid email address or password.',
@@ -87,7 +87,7 @@ class AuthController extends Controller
             $dbPassword = str_replace('{bcrypt}', '', $dbPassword);
         }
         if (str_starts_with($dbPassword, '$2a$')) {
-            $dbPassword = '$2y$' . substr($dbPassword, 4);
+            $dbPassword = '$2y$'.substr($dbPassword, 4);
             $user->update(['password' => $dbPassword]);
         }
 
@@ -100,12 +100,12 @@ class AuthController extends Controller
             }
         }
 
-        if (!$passwordValid && ($validated['password'] === $dbPassword || md5($validated['password']) === $dbPassword)) {
+        if (! $passwordValid && ($validated['password'] === $dbPassword || md5($validated['password']) === $dbPassword)) {
             $passwordValid = true;
             $user->update(['password' => Hash::make($validated['password'])]);
         }
 
-        if (!$passwordValid) {
+        if (! $passwordValid) {
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid email address or password.',
@@ -113,17 +113,16 @@ class AuthController extends Controller
         }
 
         // Check if gym owner has enforced front-desk terminal lock for staff
-        $role = strtolower($user->role ?? '');
-        $tenantUser = \App\Models\TenantUser::where('email', $user->email)->first();
+        $tenantUser = TenantUser::where('email', $user->email)->first();
         $tenantId = $user->tenant_id ?? $tenantUser?->tenant_id;
-        $tenant = $tenantId ? \App\Models\Tenant::find($tenantId) : null;
+        $tenant = $tenantId ? Tenant::find($tenantId) : null;
 
-        if ($tenant && $tenant->enforce_terminal_lock && !in_array($role, ['owner', 'super_admin', 'superadmin'])) {
+        if ($tenant && $tenant->enforce_terminal_lock && ! $user->isTenantOwner()) {
             $terminalToken = $request->header('X-Terminal-Token');
             $terminalValid = false;
             if ($terminalToken) {
                 $hash = hash('sha256', $terminalToken);
-                $terminal = \App\Models\Terminal::where('tenant_id', $tenant->id)
+                $terminal = Terminal::where('tenant_id', $tenant->id)
                     ->where('token_hash', $hash)
                     ->where('status', 'active')
                     ->first();
@@ -136,7 +135,7 @@ class AuthController extends Controller
                 }
             }
 
-            if (!$terminalValid) {
+            if (! $terminalValid) {
                 return response()->json([
                     'success' => false,
                     'status' => 'error',
@@ -154,7 +153,7 @@ class AuthController extends Controller
             'data' => [
                 'user' => $this->resolveUserWithTenant($user),
                 'token' => $token,
-            ]
+            ],
         ]);
     }
 
@@ -175,22 +174,8 @@ class AuthController extends Controller
     private function resolveUserWithTenant($user)
     {
         $user->load('tenant.features', 'tenant.theme', 'tenant.license');
-        $userData = $user->toArray();
 
-        if (!$user->tenant) {
-            $tenantUser = \Illuminate\Support\Facades\DB::table('tenant_users')->where('email', $user->email)->first();
-            if ($tenantUser && $tenantUser->tenant_id) {
-                $tenant = \App\Models\Tenant::with(['features', 'theme', 'license'])->find($tenantUser->tenant_id);
-            } else {
-                $tenant = \App\Models\Tenant::with(['features', 'theme', 'license'])->first();
-            }
-            if ($tenant) {
-                $userData['tenant'] = $tenant;
-                $userData['tenant_id'] = $tenant->id;
-            }
-        }
-
-        return $userData;
+        return $user->toArray();
     }
 
     /**
