@@ -52,6 +52,7 @@ jobs:
       - name: Validate required secrets
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '65002' }}
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           APP_KEY: ${{ secrets.APP_KEY }}
@@ -164,26 +165,30 @@ jobs:
       - name: Prepare SSH key
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '65002' }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "$SSH_HOST" > ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" > ~/.ssh/known_hosts 2>/dev/null
 
       - name: Enable maintenance mode
         env:
-          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/api.fitfarmhq.com' }}
+          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/fitfarmhq.com/public_html/api' }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '65002' }}
+          PHP_BIN: ${{ secrets.PHP_BIN || '/opt/alt/php83/usr/bin/php' }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
-            "cd '$TARGET' && php artisan down --retry=60 || true"
+          ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            "cd '$TARGET' && '$PHP_BIN' artisan down --retry=60 || true"
 
       - name: Rsync application to Hostinger
         env:
-          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/api.fitfarmhq.com' }}
+          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/fitfarmhq.com/public_html/api' }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '65002' }}
         run: |
           rsync -az --delete --delay-updates \
-            -e "ssh -i ~/.ssh/id_ed25519" \
+            -e "ssh -p $SSH_PORT -i ~/.ssh/id_ed25519" \
             --exclude '.git' \
             --exclude '.github' \
             --exclude '/.htaccess' \
@@ -207,15 +212,17 @@ jobs:
 
       - name: Run post-deploy commands
         env:
-          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/api.fitfarmhq.com' }}
+          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/fitfarmhq.com/public_html/api' }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '65002' }}
+          PHP_BIN: ${{ secrets.PHP_BIN || '/opt/alt/php83/usr/bin/php' }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" "\
+          ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" "\
             cd '$TARGET' && \
             chmod -R 775 storage bootstrap/cache && \
-            php artisan migrate --force && \
-            php artisan storage:link || true && \
-            php artisan optimize && \
-            php artisan up"
+            '$PHP_BIN' artisan migrate --force && \
+            ('$PHP_BIN' artisan storage:link || true) && \
+            '$PHP_BIN' artisan optimize && \
+            '$PHP_BIN' artisan up"
 
       - name: Verify API health
         run: |
@@ -232,7 +239,9 @@ jobs:
       - name: Ensure maintenance mode is disabled
         if: always()
         env:
-          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/api.fitfarmhq.com' }}
+          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/fitfarmhq.com/public_html/api' }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '65002' }}
+          PHP_BIN: ${{ secrets.PHP_BIN || '/opt/alt/php83/usr/bin/php' }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
-            "cd '$TARGET' && php artisan up || true"
+          ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            "cd '$TARGET' && '$PHP_BIN' artisan up || true"
