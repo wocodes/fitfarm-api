@@ -30,4 +30,19 @@ return [
 
     'trial_days' => 14,
     'default_max_members' => 100,
+
+    /*
+    |--------------------------------------------------------------------------
+    | One-time platform administrator bootstrap
+    |--------------------------------------------------------------------------
+    |
+    | These values are consumed by DatabaseSeeder. They live in config so they
+    | still work when the production configuration cache is enabled.
+    |
+    */
+    'super_admin' => [
+        'email' => env('SUPER_ADMIN_EMAIL'),
+        'name' => env('SUPER_ADMIN_NAME', 'Platform Admin'),
+        'password' => env('SUPER_ADMIN_PASSWORD'),
+    ],
 ];
