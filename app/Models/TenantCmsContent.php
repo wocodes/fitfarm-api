@@ -38,7 +38,7 @@ class TenantCmsContent extends Model
                         [
                             'id' => 'h1',
                             'title' => 'Transform Your Body. Elevate Your Mind.',
-                            'subtitle' => 'High-Speed Optical Turnstiles • Encrypted Barcode Passes • Olympic Free Weights',
+                            'subtitle' => 'High-Speed Optical Access Gates • Encrypted Barcode Passes • Olympic Free Weights',
                             'tag' => 'Next-Gen Fitness',
                             'image' => '/images/hero/1.webp',
                             'cta_text' => 'Get Your Digital Pass',
@@ -49,7 +49,7 @@ class TenantCmsContent extends Model
                         [
                             'id' => 'h2',
                             'title' => 'Contactless Biometric Gate Entry.',
-                            'subtitle' => 'Zero Plastic Keycards • Instant Optical Turnstile Tap • Real-Time Attendance Logs',
+                            'subtitle' => 'Zero Plastic Keycards • Instant Optical Access Gate Tap • Real-Time Attendance Logs',
                             'tag' => 'Smart Pass Technology',
                             'image' => '/images/hero/2.webp',
                             'cta_text' => 'View Gate Barcode',
@@ -487,7 +487,7 @@ class TenantCmsContent extends Model
                             'avatar' => '/images/testimonial/1.webp',
                             'rating' => 5,
                             'achievement' => '🔥 Lost 14kg & Built 5kg Muscle',
-                            'comment' => 'The speed of the turnstiles is insane. Having my pass right on my phone with zero plastic cards or delays makes training at 6 AM completely frictionless.',
+                            'comment' => 'The speed of the access gates is insane. Having my pass right on my phone with zero plastic cards or delays makes training at 6 AM completely frictionless.',
                             'duration' => 'Member for 14 Months',
                         ],
                         [
@@ -532,7 +532,7 @@ class TenantCmsContent extends Model
                         ],
                         [
                             'q' => 'How do I renew or upgrade my membership plan?',
-                            'a' => 'Simply click "Renew / Upgrade Online" on your dashboard or select any plan on this page. Payments are verified instantly (card, bank transfer, USSD) and your turnstile access extends immediately.',
+                            'a' => 'Simply click "Renew / Upgrade Online" on your dashboard or select any plan on this page. Payments are verified instantly (card, bank transfer, USSD) and your access gate access extends immediately.',
                         ],
                         [
                             'q' => 'Can I pause or freeze my membership if I travel?',
