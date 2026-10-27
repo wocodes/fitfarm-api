@@ -14,7 +14,7 @@ class GymSettingsController extends Controller
      */
     private static function getDefaultTerms(): string
     {
-        return '<h2>1. Facility Membership & Code of Conduct</h2><p>By entering PolanFit Gym facilities, members agree to adhere to all facility rules, hygiene protocols, and proper equipment operation guidelines.</p><h2>2. Access Controls & Biometric Verification</h2><p>Access is restricted strictly to active subscription holders. Turnstiles require valid biometric fingerprint scan or dynamic encrypted QR badge verification at entrance.</p><h2>3. Fees & Membership Renewals</h2><p>Subscription fees are billed according to chosen plan cycles (Monthly, Quarterly, Annual). Expired memberships incur access freeze following a 3-day grace period.</p>';
+        return '<h2>1. Facility Membership & Code of Conduct</h2><p>By entering our gym facilities, members agree to adhere to all facility rules, hygiene protocols, and proper equipment operation guidelines.</p><h2>2. Access Controls & Biometric Verification</h2><p>Access is restricted strictly to active subscription holders. Access gates require a valid biometric fingerprint scan or dynamic encrypted QR badge verification at entrance.</p><h2>3. Fees & Membership Renewals</h2><p>Subscription fees are billed according to chosen plan cycles (Monthly, Quarterly, Annual). Expired memberships incur access freeze following a 3-day grace period.</p>';
     }
 
     private static function getDefaultPrivacy(): string
@@ -24,7 +24,7 @@ class GymSettingsController extends Controller
 
     private static function getDefaultWaiver(): string
     {
-        return '<h2>1. Physical Fitness & Medical Clearance</h2><p>Members confirm they are in sound physical health to engage in cardiovascular and resistance weight training activities.</p><h2>2. Assumption of Risk</h2><p>Members participate at their own risk and release PolanFit Fitness Center from liability regarding accidental personal injury occurring during unsupervised workout routines.</p>';
+        return '<h2>1. Physical Fitness & Medical Clearance</h2><p>Members confirm they are in sound physical health to engage in cardiovascular and resistance weight training activities.</p><h2>2. Assumption of Risk</h2><p>Members participate at their own risk and release the gym from liability regarding accidental personal injury occurring during unsupervised workout routines.</p>';
     }
 
     private static function getDefaultRefund(): string
@@ -65,9 +65,9 @@ class GymSettingsController extends Controller
                 'terms_conditions' => $terms,
                 'privacy_policy' => $privacy,
                 'operating_settings' => [
-                    'phone' => '+234 803 123 4567',
-                    'email' => 'contact@polanfit.com',
-                    'address' => '12 Fitness Boulevard, Victoria Island, Lagos',
+                    'phone' => '+234 801 122 3322',
+                    'email' => 'hello@example.com',
+                    'address' => '123 Fitness Avenue, Lagos',
                     'tax_rate' => 7.5,
                     'grace_period_days' => 3,
                     'auto_freeze_plans' => true,
@@ -76,19 +76,19 @@ class GymSettingsController extends Controller
                     'hero_subtitle' => 'Premium Multitenant Gym & Facility Management System',
                 ],
                 'contact_socials' => [
-                    'contact_phone' => '+234 803 123 4567',
-                    'contact_email' => 'support@polanfit.com',
-                    'contact_address' => '11 Rafiu Ojelowo Street, Victoria Island, Lagos, Nigeria',
+                    'contact_phone' => '+234 801 122 3322',
+                    'contact_email' => 'hello@example.com',
+                    'contact_address' => '123 Fitness Avenue, Lagos, Nigeria',
                     'contact_hours' => 'Monday - Sunday: 06:00 AM - 11:00 PM',
-                    'gym_description' => 'Transform your lifestyle with PolanFit Gym! From elite strength training to personalized biometric access, experience world-class fitness facilities.',
+                    'gym_description' => 'Transform your lifestyle at our gym! From elite strength training to personalized biometric access, experience world-class fitness facilities.',
                     'google_maps_embed' => 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3964.2487720737704!2d3.1883933752293316!3d6.490151123549498',
-                    'social_fb' => 'https://facebook.com/polanfitgym',
-                    'social_ig' => 'https://instagram.com/polanfitgym',
-                    'social_x' => 'https://x.com/polanfitgym',
-                    'social_yt' => 'https://youtube.com/@polanfitgym',
-                    'social_wa' => 'https://wa.me/2348031234567',
-                    'social_tk' => 'https://tiktok.com/@polanfitgym',
-                    'social_sc' => 'https://snapchat.com/add/polanfitgym',
+                    'social_fb' => '',
+                    'social_ig' => '',
+                    'social_x' => '',
+                    'social_yt' => '',
+                    'social_wa' => '',
+                    'social_tk' => '',
+                    'social_sc' => '',
                 ],
                 'legal_docs' => [
                     'terms_conditions' => $terms,

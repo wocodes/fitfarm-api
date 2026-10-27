@@ -19,12 +19,12 @@ class PlatformSettingsService
             'usd_rate' => 1600,
             'landing' => [
                 'hero' => [
-                    'badge' => 'Optical Turnstiles • Smart Passes • Automated Payouts',
+                    'badge' => 'Optical Access Gates • Smart Passes • Automated Payouts',
                     'title' => 'The Intelligent Cloud OS for',
                     'highlight' => 'Modern Fitness Centers',
-                    'subtitle' => 'Unify high-speed turnstiles, encrypted biometric member entry, automated subscription freeze/resume controls, and automated revenue settlement—all from one branded multi-tenant dashboard.',
+                    'subtitle' => 'Unify high-speed access gates, encrypted biometric member entry, automated subscription freeze/resume controls, and automated revenue settlement—all from one branded multi-tenant dashboard.',
                     'primary_cta' => 'Launch Your Gym in 2 Minutes',
-                    'secondary_cta' => 'Test Turnstile Simulator',
+                    'secondary_cta' => 'Test Gate Simulator',
                 ],
                 'stats' => [
                     ['value' => '99.99%', 'label' => 'Uptime SLA'],
@@ -45,7 +45,7 @@ class PlatformSettingsService
                             '$0 Upfront Hardware Setup Cost',
                             'Unlimited Members & Staff Accounts',
                             'Automated 1% Split Payment',
-                            'Optical Turnstiles & Biometrics Included',
+                            'Optical Access Gates & Biometrics Included',
                             'Full Audit Logs & Smart Pass Engine',
                         ],
                         'featured' => true,
@@ -64,7 +64,7 @@ class PlatformSettingsService
                             'Unlimited Locations & Branches',
                             'Priority 24/7 Technical Support',
                             'Custom Domain SSL Configuration',
-                            'Dedicated Turnstile Hardware Engineer',
+                            'Dedicated Access Gate Hardware Engineer',
                         ],
                         'featured' => false,
                         'cta' => 'Get Enterprise License',

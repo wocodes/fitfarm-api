@@ -83,7 +83,7 @@ class PaystackService
         $callbackUrl = $tenant->memberPortalUrl();
 
         $payload = [
-            'email' => $member->email ?? "member{$member->id}@polanfit.com",
+            'email' => $member->email ?? "member{$member->id}@example.com",
             'amount' => $amountInKobo,
             'reference' => $reference,
             'callback_url' => "{$callbackUrl}&payment=success",
