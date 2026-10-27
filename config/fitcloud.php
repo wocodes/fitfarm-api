@@ -33,6 +33,16 @@ return [
         'base_url' => env('BACHS_BASE_URL', 'https://api.bachs.io'),
         'webhook_secret' => env('BACHS_WEBHOOK_SECRET', ''),
         'currency' => env('BACHS_CURRENCY', 'NGN'),
+        // Demo tenants always use sandbox credentials and can never reach a
+        // live checkout, even when the platform is running live payments.
+        'demo_secret_key' => env('BACHS_DEMO_SECRET_KEY', ''),
+        'demo_base_url' => env('BACHS_DEMO_BASE_URL', 'https://sandbox-api.bachs.io'),
+        'demo_webhook_secret' => env('BACHS_DEMO_WEBHOOK_SECRET', ''),
+    ],
+
+    'demo' => [
+        'days' => (int) env('DEMO_DURATION_DAYS', 30),
+        'grace_days' => (int) env('DEMO_GRACE_DAYS', 7),
     ],
 
     'paystack' => [

@@ -24,12 +24,23 @@ class Tenant extends Model
         'enforce_terminal_lock',
         'trial_ends_at',
         'setup_completed_at',
+        'is_demo',
+        'demo_status',
+        'demo_expires_at',
+        'demo_purge_after',
+        'demo_converted_at',
+        'demo_notes',
+        'demo_created_by',
     ];
 
     protected $casts = [
         'enforce_terminal_lock' => 'boolean',
         'trial_ends_at' => 'datetime',
         'setup_completed_at' => 'datetime',
+        'is_demo' => 'boolean',
+        'demo_expires_at' => 'datetime',
+        'demo_purge_after' => 'datetime',
+        'demo_converted_at' => 'datetime',
     ];
 
     protected static function booted()

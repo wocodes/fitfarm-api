@@ -20,9 +20,33 @@ class BachsService
         $this->baseUrl = rtrim((string) config('fitcloud.bachs.base_url', 'https://api.bachs.io'), '/');
     }
 
-    public function isConfigured(): bool
+    public function isConfigured(?Tenant $tenant = null): bool
     {
-        return $this->secretKey !== '';
+        return $this->credentialsFor($tenant)[0] !== '';
+    }
+
+    /**
+     * Demo tenants are always pinned to sandbox credentials. If dedicated
+     * demo credentials are not configured, fall back to the platform key only
+     * when that key is itself a sandbox key.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private function credentialsFor(?Tenant $tenant = null): array
+    {
+        if (! $tenant?->is_demo) {
+            return [$this->secretKey, $this->baseUrl];
+        }
+
+        $key = (string) config('fitcloud.bachs.demo_secret_key', '');
+        $base = rtrim((string) config('fitcloud.bachs.demo_base_url', 'https://sandbox-api.bachs.io'), '/');
+
+        if ($key === '' && str_starts_with($this->secretKey, 'sk_sandbox_')) {
+            $key = $this->secretKey;
+            $base = $this->baseUrl;
+        }
+
+        return [$key, $base];
     }
 
     /**
@@ -30,10 +54,14 @@ class BachsService
      */
     public function createCheckout(Transaction $transaction, Member $member, Tenant $tenant): array
     {
-        if (! $this->isConfigured()) {
+        [$secretKey, $baseUrl] = $this->credentialsFor($tenant);
+
+        if ($secretKey === '') {
             return [
                 'success' => false,
-                'message' => 'Online payments are not configured.',
+                'message' => $tenant->is_demo
+                    ? 'Demo payment testing is not configured. Add sandbox Bachs credentials.'
+                    : 'Online payments are not configured.',
             ];
         }
 
@@ -62,10 +90,10 @@ class BachsService
         ];
 
         try {
-            $response = Http::withToken($this->secretKey)
+            $response = Http::withToken($secretKey)
                 ->acceptJson()
                 ->timeout(20)
-                ->post($this->baseUrl.'/v1/checkout-sessions', $payload);
+                ->post($baseUrl.'/v1/checkout-sessions', $payload);
         } catch (Throwable $exception) {
             report($exception);
 
@@ -95,20 +123,24 @@ class BachsService
     /**
      * Retrieve a checkout session from Bachs.
      */
-    public function getCheckout(string $checkoutId): array
+    public function getCheckout(string $checkoutId, ?Tenant $tenant = null): array
     {
-        if (! $this->isConfigured()) {
+        [$secretKey, $baseUrl] = $this->credentialsFor($tenant);
+
+        if ($secretKey === '') {
             return [
                 'success' => false,
-                'message' => 'Online payments are not configured.',
+                'message' => $tenant?->is_demo
+                    ? 'Demo payment testing is not configured. Add sandbox Bachs credentials.'
+                    : 'Online payments are not configured.',
             ];
         }
 
         try {
-            $response = Http::withToken($this->secretKey)
+            $response = Http::withToken($secretKey)
                 ->acceptJson()
                 ->timeout(20)
-                ->get($this->baseUrl.'/v1/checkout-sessions/'.$checkoutId);
+                ->get($baseUrl.'/v1/checkout-sessions/'.$checkoutId);
         } catch (Throwable $exception) {
             report($exception);
 
@@ -136,5 +168,19 @@ class BachsService
     public function webhookSecret(): string
     {
         return (string) config('fitcloud.bachs.webhook_secret', '');
+    }
+
+    /**
+     * Accept both live and demo webhook signatures so sandbox demo payments
+     * can be completed while production remains on live credentials.
+     *
+     * @return array<int, string>
+     */
+    public function webhookSecrets(): array
+    {
+        return array_values(array_unique(array_filter([
+            (string) config('fitcloud.bachs.webhook_secret', ''),
+            (string) config('fitcloud.bachs.demo_webhook_secret', ''),
+        ])));
     }
 }

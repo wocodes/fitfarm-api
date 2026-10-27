@@ -13,10 +13,10 @@ class BachsWebhookController extends Controller
 {
     public function handle(Request $request, BachsService $bachs, MembershipActivationService $activation)
     {
-        $secret = $bachs->webhookSecret();
+        $secrets = $bachs->webhookSecrets();
 
-        if ($secret === '') {
-            Log::error('Bachs webhook rejected because BACHS_WEBHOOK_SECRET is not configured.');
+        if ($secrets === []) {
+            Log::error('Bachs webhook rejected because no Bachs webhook secret is configured.');
 
             return response()->json(['message' => 'Webhook is not configured'], 503);
         }
@@ -26,7 +26,15 @@ class BachsWebhookController extends Controller
         $v2 = (string) $request->header('X-Bachs-Signature-V2', '');
         $v1 = (string) $request->header('X-Bachs-Signature', '');
 
-        if (! $this->hasValidSignature($rawBody, $timestamp, $v2, $v1, $secret)) {
+        $signatureValid = false;
+        foreach ($secrets as $secret) {
+            if ($this->hasValidSignature($rawBody, $timestamp, $v2, $v1, $secret)) {
+                $signatureValid = true;
+                break;
+            }
+        }
+
+        if (! $signatureValid) {
             Log::warning('Bachs webhook signature verification failed.');
 
             return response()->json(['message' => 'Invalid signature'], 400);

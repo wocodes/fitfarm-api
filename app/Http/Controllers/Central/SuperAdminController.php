@@ -7,9 +7,12 @@ use App\Models\License;
 use App\Models\Member;
 use App\Models\Tenant;
 use App\Models\TenantUser;
+use App\Services\DemoTenantService;
 use App\Services\LicenseService;
 use App\Services\PlatformSettingsService;
+use App\Services\TenantPurgeService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -40,6 +43,7 @@ class SuperAdminController extends Controller
                 'suspended_tenants' => Tenant::where('status', 'suspended')->count(),
                 'total_licenses' => License::count(),
                 'active_licenses' => License::where('is_active', true)->count(),
+                'demo_tenants' => Tenant::where('is_demo', true)->count(),
             ],
         ]);
     }
@@ -147,6 +151,144 @@ class SuperAdminController extends Controller
             'message' => 'Landing page settings updated.',
             'data' => $content,
         ]);
+    }
+
+    public function listDemos()
+    {
+        $demos = Tenant::with(['users', 'theme'])
+            ->where('is_demo', true)
+            ->latest()
+            ->get()
+            ->map(fn (Tenant $tenant) => $this->demoPayload($tenant));
+
+        return response()->json([
+            'success' => true,
+            'data' => $demos,
+        ]);
+    }
+
+    public function createDemo(Request $request, DemoTenantService $demoService)
+    {
+        $validated = $request->validate([
+            'gym_name' => 'required|string|max:255',
+            'owner_name' => 'required|string|max:255',
+            'owner_email' => 'required|email|max:255|unique:tenant_users,email',
+            'owner_phone' => 'nullable|string|max:50',
+            'duration_days' => 'nullable|integer|min:1|max:365',
+            'notes' => 'nullable|string|max:2000',
+            'primary_color' => 'nullable|string|max:32',
+            'accent_color' => 'nullable|string|max:32',
+        ]);
+
+        $result = $demoService->create($validated, $request->user());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Demo gym created.',
+            'data' => array_merge($this->demoPayload($result['tenant']), [
+                'access_url' => $result['access_url'],
+                'member_portal_url' => $result['member_portal_url'],
+            ]),
+        ], 201);
+    }
+
+    public function extendDemo(Request $request, string $uuid, DemoTenantService $demoService)
+    {
+        $validated = $request->validate([
+            'days' => 'nullable|integer|min:1|max:365',
+        ]);
+
+        $tenant = Tenant::where('uuid', $uuid)->where('is_demo', true)->firstOrFail();
+        $tenant = $demoService->extend($tenant, (int) ($validated['days'] ?? 30), $request->user());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Demo extended.',
+            'data' => $this->demoPayload($tenant),
+        ]);
+    }
+
+    public function convertDemo(Request $request, string $uuid, DemoTenantService $demoService)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->where('is_demo', true)->firstOrFail();
+        $tenant = $demoService->convert($tenant, $request->user());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Demo converted to a live gym.',
+            'data' => $this->demoPayload($tenant),
+        ]);
+    }
+
+    public function deleteDemo(Request $request, string $uuid, TenantPurgeService $purgeService)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->where('is_demo', true)->firstOrFail();
+
+        $validated = $request->validate([
+            'confirmation' => 'required|string',
+        ]);
+
+        if ($validated['confirmation'] !== $tenant->slug) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Type the gym subdomain exactly to confirm deletion.',
+            ], 422);
+        }
+
+        $counts = $purgeService->purge($tenant, 'manual-demo-delete');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Demo gym and its data have been deleted.',
+            'data' => $counts,
+        ]);
+    }
+
+    public function demoAccessLink(string $uuid, DemoTenantService $demoService)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->where('is_demo', true)->firstOrFail();
+        $owner = $tenant->users()->where('role', 'owner')->firstOrFail();
+        $token = $demoService->issueAccessToken($owner);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'access_url' => $demoService->accessUrl($tenant, $token),
+                'member_portal_url' => $tenant->memberPortalUrl(),
+            ],
+        ]);
+    }
+
+    private function demoPayload(Tenant $tenant): array
+    {
+        $owner = $tenant->users->firstWhere('role', 'owner') ?: $tenant->users->first();
+
+        return [
+            'uuid' => $tenant->uuid,
+            'name' => $tenant->name,
+            'slug' => $tenant->slug,
+            'status' => $tenant->status,
+            'is_demo' => $tenant->is_demo,
+            'demo_status' => $tenant->demo_status,
+            'demo_expires_at' => $tenant->demo_expires_at?->toIso8601String(),
+            'demo_purge_after' => $tenant->demo_purge_after?->toIso8601String(),
+            'demo_notes' => $tenant->demo_notes,
+            'owner_name' => $owner?->name,
+            'owner_email' => $owner?->email,
+            'days_remaining' => $this->daysUntil($tenant->demo_expires_at),
+            'purge_in_days' => $this->daysUntil($tenant->demo_purge_after),
+            'member_portal_url' => $tenant->memberPortalUrl(),
+            'created_at' => $tenant->created_at?->toIso8601String(),
+        ];
+    }
+
+    private function daysUntil(?Carbon $date): ?int
+    {
+        if (! $date) {
+            return null;
+        }
+
+        return max(0, (int) ceil(now()->diffInSeconds($date, false) / 86400));
     }
 
     /**

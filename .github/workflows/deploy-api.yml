@@ -139,6 +139,11 @@ jobs:
           BACHS_WEBHOOK_SECRET: ${{ secrets.BACHS_WEBHOOK_SECRET }}
           BACHS_BASE_URL: ${{ secrets.BACHS_BASE_URL || 'https://api.bachs.io' }}
           BACHS_CURRENCY: ${{ secrets.BACHS_CURRENCY || 'NGN' }}
+          BACHS_DEMO_SECRET_KEY: ${{ secrets.BACHS_DEMO_SECRET_KEY || '' }}
+          BACHS_DEMO_BASE_URL: ${{ secrets.BACHS_DEMO_BASE_URL || 'https://sandbox-api.bachs.io' }}
+          BACHS_DEMO_WEBHOOK_SECRET: ${{ secrets.BACHS_DEMO_WEBHOOK_SECRET || '' }}
+          DEMO_DURATION_DAYS: ${{ secrets.DEMO_DURATION_DAYS || '30' }}
+          DEMO_GRACE_DAYS: ${{ secrets.DEMO_GRACE_DAYS || '7' }}
           MAIL_MAILER: ${{ secrets.MAIL_MAILER || 'log' }}
           MAIL_HOST: ${{ secrets.MAIL_HOST || '' }}
           MAIL_PORT: ${{ secrets.MAIL_PORT || '587' }}
@@ -194,6 +199,11 @@ jobs:
             "BACHS_WEBHOOK_SECRET=$BACHS_WEBHOOK_SECRET" \
             "BACHS_BASE_URL=$BACHS_BASE_URL" \
             "BACHS_CURRENCY=$BACHS_CURRENCY" \
+            "BACHS_DEMO_SECRET_KEY=$BACHS_DEMO_SECRET_KEY" \
+            "BACHS_DEMO_BASE_URL=$BACHS_DEMO_BASE_URL" \
+            "BACHS_DEMO_WEBHOOK_SECRET=$BACHS_DEMO_WEBHOOK_SECRET" \
+            "DEMO_DURATION_DAYS=$DEMO_DURATION_DAYS" \
+            "DEMO_GRACE_DAYS=$DEMO_GRACE_DAYS" \
             "SUPER_ADMIN_EMAIL=$SUPER_ADMIN_EMAIL" \
             "SUPER_ADMIN_NAME=$SUPER_ADMIN_NAME" \
             "SUPER_ADMIN_PASSWORD=$SUPER_ADMIN_PASSWORD" \

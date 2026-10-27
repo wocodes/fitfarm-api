@@ -158,6 +158,16 @@ class CampaignController extends Controller
      */
     public function sendEmailBlast(Request $request)
     {
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
+
+        if ($tenant?->is_demo) {
+            return response()->json([
+                'status' => 'error',
+                'success' => false,
+                'message' => 'Email campaigns are disabled in demo mode.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'subject' => 'required|string|max:255',
             'body' => 'required|string',

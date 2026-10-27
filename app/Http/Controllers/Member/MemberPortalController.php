@@ -69,6 +69,9 @@ class MemberPortalController extends Controller
                     'address' => $cms['contact_socials']['address'] ?? null,
                     'phone' => $cms['contact_socials']['phone'] ?? null,
                     'email' => $cms['contact_socials']['email'] ?? null,
+                    'is_demo' => (bool) $tenant->is_demo,
+                    'demo_status' => $tenant->demo_status,
+                    'demo_expires_at' => $tenant->demo_expires_at?->toIso8601String(),
                 ],
                 'theme' => $tenant->theme ?? [
                     'primary_color' => '#fa6a2e',
@@ -467,7 +470,10 @@ class MemberPortalController extends Controller
             ], 422);
         }
 
-        $checkout = app(BachsService::class)->getCheckout($transaction->provider_checkout_id);
+        $checkout = app(BachsService::class)->getCheckout(
+            $transaction->provider_checkout_id,
+            $member->tenant
+        );
 
         if (! $checkout['success']) {
             return response()->json([
