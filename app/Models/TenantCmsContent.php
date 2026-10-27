@@ -547,18 +547,21 @@ class TenantCmsContent extends Model
 
             case 'contact_socials':
                 return [
-                    'phone' => '+234 812 345 6789',
-                    'email' => 'frontdesk@example.com',
-                    'address' => '14 Admiralty Way, Lekki Phase 1, Lagos, Nigeria',
+                    'phone' => '+234 801 122 3322',
+                    'email' => 'hello@example.com',
+                    'address' => '123 Fitness Avenue, Lagos, Nigeria',
                     'hours_weekday' => '06:00 – 22:00',
                     'hours_weekend' => '07:00 – 21:00',
                     'hours_holidays' => '08:00 – 18:00',
+                    'gym_description' => 'World-class training, smart access, and a member experience built around you.',
+                    'google_maps_embed' => '',
                     'social_fb' => 'https://facebook.com',
                     'social_ig' => 'https://instagram.com',
                     'social_x' => 'https://x.com',
                     'social_yt' => 'https://youtube.com',
                     'social_tk' => 'https://tiktok.com',
                     'social_wa' => 'https://wa.me/?text=Hello%20Gym%20Front%20Desk,%20I%20have%20an%20inquiry%20regarding%20memberships.',
+                    'social_sc' => '',
                 ];
 
             case 'section_visibility':

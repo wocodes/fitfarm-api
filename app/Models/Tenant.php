@@ -78,12 +78,21 @@ class Tenant extends Model
 
     public function getCmsSection(string $sectionKey): array
     {
+        $defaults = TenantCmsContent::getDefaultSectionContent($sectionKey, $this);
         $record = $this->cmsContents()->where('section_key', $sectionKey)->first();
-        if ($record && ! empty($record->content)) {
+
+        if ($record && ! empty($record->content) && is_array($record->content)) {
+            // Contact information is edited from several admin screens. Merge
+            // saved values over defaults so a partially saved section never
+            // hides the remaining public contact fields.
+            if ($sectionKey === 'contact_socials') {
+                return array_replace($defaults, $record->content);
+            }
+
             return $record->content;
         }
 
-        return TenantCmsContent::getDefaultSectionContent($sectionKey, $this);
+        return $defaults;
     }
 
     public function hasFeature(string $featureKey): bool
