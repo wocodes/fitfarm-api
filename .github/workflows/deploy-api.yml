@@ -66,30 +66,33 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           APP_KEY: ${{ secrets.APP_KEY }}
+          APP_ENV: ${{ secrets.APP_ENV }}
+          APP_URL: ${{ secrets.APP_URL }}
+          API_PUBLIC_URL: ${{ secrets.API_PUBLIC_URL }}
+          API_SSH_TARGET_ROOT: ${{ secrets.API_SSH_TARGET_ROOT }}
           DB_DATABASE: ${{ secrets.DB_DATABASE }}
           DB_USERNAME: ${{ secrets.DB_USERNAME }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           BACHS_SECRET_KEY: ${{ secrets.BACHS_SECRET_KEY }}
           BACHS_WEBHOOK_SECRET: ${{ secrets.BACHS_WEBHOOK_SECRET }}
           BACHS_BASE_URL: ${{ secrets.BACHS_BASE_URL || 'https://api.bachs.io' }}
-          API_SSH_TARGET_ROOT: ${{ secrets.API_SSH_TARGET_ROOT }}
-          API_PUBLIC_URL: ${{ secrets.API_PUBLIC_URL }}
-          APP_ENV: ${{ secrets.APP_ENV }}
-          APP_URL: ${{ secrets.APP_URL }}
         run: |
-          test -n "$SSH_HOST" || { echo "::error::SSH_HOST secret is missing"; exit 1; }
-          test -n "$SSH_USER" || { echo "::error::SSH_USER secret is missing"; exit 1; }
-          test -n "$SSH_PRIVATE_KEY" || { echo "::error::SSH_PRIVATE_KEY secret is missing"; exit 1; }
-          test -n "$APP_KEY" || { echo "::error::APP_KEY secret is missing"; exit 1; }
-          test -n "$DB_DATABASE" || { echo "::error::DB_DATABASE secret is missing"; exit 1; }
-          test -n "$DB_USERNAME" || { echo "::error::DB_USERNAME secret is missing"; exit 1; }
-          test -n "$DB_PASSWORD" || { echo "::error::DB_PASSWORD secret is missing"; exit 1; }
-          test -n "$BACHS_SECRET_KEY" || { echo "::error::BACHS_SECRET_KEY secret is missing"; exit 1; }
-          test -n "$BACHS_WEBHOOK_SECRET" || { echo "::error::BACHS_WEBHOOK_SECRET secret is missing"; exit 1; }
-          test -n "$API_SSH_TARGET_ROOT" || { echo "::error::API_SSH_TARGET_ROOT secret is missing"; exit 1; }
-          test -n "$API_PUBLIC_URL" || { echo "::error::API_PUBLIC_URL secret is missing"; exit 1; }
-          test -n "$APP_ENV" || { echo "::error::APP_ENV secret is missing"; exit 1; }
-          test -n "$APP_URL" || { echo "::error::APP_URL secret is missing"; exit 1; }
+          missing=()
+          for name in \
+            SSH_HOST SSH_USER SSH_PRIVATE_KEY APP_KEY APP_ENV APP_URL \
+            API_PUBLIC_URL API_SSH_TARGET_ROOT DB_DATABASE DB_USERNAME \
+            DB_PASSWORD BACHS_SECRET_KEY BACHS_WEBHOOK_SECRET
+          do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing required GitHub secrets for this environment: ${missing[*]}"
+            exit 1
+          fi
+
           case "$BACHS_SECRET_KEY" in
             sk_sandbox_*)
               case "$BACHS_BASE_URL" in *sandbox-api.bachs.io*) ;; *)
@@ -201,6 +204,7 @@ jobs:
           test -n "$APP_KEY"
 
       - name: Prepare SSH key
+        id: prepare_ssh
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT || '65002' }}
@@ -277,7 +281,7 @@ jobs:
           exit 1
 
       - name: Ensure maintenance mode is disabled
-        if: always()
+        if: always() && steps.prepare_ssh.outcome == 'success'
         env:
           TARGET: ${{ secrets.API_SSH_TARGET_ROOT }}
           SSH_PORT: ${{ secrets.SSH_PORT || '65002' }}
