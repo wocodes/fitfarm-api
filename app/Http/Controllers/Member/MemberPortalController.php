@@ -8,10 +8,11 @@ use App\Models\Member;
 use App\Models\MemberPlan;
 use App\Models\PricingPlan;
 use App\Models\Transaction;
-use App\Services\PaystackService;
+use App\Services\BachsService;
+use App\Services\MembershipActivationService;
+use App\Services\PlatformSettingsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -74,6 +75,10 @@ class MemberPortalController extends Controller
                     'accent_color' => '#1e293b',
                 ],
                 'pricing_plans' => $plans,
+                'platform' => [
+                    'usd_rate' => app(PlatformSettingsService::class)->usdRate(),
+                    'default_currency' => app(PlatformSettingsService::class)->defaultCurrency(),
+                ],
                 'cms' => $cms,
             ],
         ]);
@@ -328,17 +333,15 @@ class MemberPortalController extends Controller
     }
 
     /**
-     * Process & record member subscription plan purchase (e.g. after Paystack verification).
+     * Create a hosted Bachs checkout for a plan.
      */
-    public function purchasePlan(Request $request)
+    public function initializePlan(Request $request)
     {
         $member = $request->user();
 
         $validated = $request->validate([
             'pricing_plan_id' => 'required|integer',
-            'payment_reference' => 'required|string|max:255',
-            'amount' => 'required|numeric|min:0',
-            'channel' => 'nullable|string|max:50',
+            'currency' => 'nullable|in:NGN,USD',
         ]);
 
         $plan = PricingPlan::where('tenant_id', $member->tenant_id)
@@ -346,124 +349,158 @@ class MemberPortalController extends Controller
             ->where('is_active', true)
             ->firstOrFail();
 
-        $expectedAmount = (float) $plan->price;
+        $tenant = $member->tenant;
+        $planCurrency = strtoupper((string) ($tenant?->currency ?: 'NGN'));
+        $selectedCurrency = strtoupper((string) ($validated['currency'] ?? $planCurrency));
+        $usdRate = app(PlatformSettingsService::class)->usdRate();
 
-        if (abs((float) $validated['amount'] - $expectedAmount) > 0.009) {
+        $amount = (float) $plan->price;
+
+        if ($selectedCurrency !== $planCurrency) {
+            if ($selectedCurrency === 'USD' && $planCurrency === 'NGN') {
+                $amount = round($amount / $usdRate, 2);
+            } elseif ($selectedCurrency === 'NGN' && $planCurrency === 'USD') {
+                $amount = round($amount * $usdRate, 2);
+            }
+        }
+
+        $feePercentage = (float) config('fitcloud.platform_fee_percentage', 1.0);
+        $platformFee = $tenant?->pricing_path === 'free_tier'
+            ? round($amount * ($feePercentage / 100), 2)
+            : 0.00;
+
+        $transaction = Transaction::create([
+            'tenant_id' => $member->tenant_id,
+            'member_id' => $member->id,
+            'pricing_plan_id' => $plan->id,
+            'reference' => 'FFH-'.strtoupper(Str::random(16)),
+            'amount' => $amount,
+            'platform_fee' => $platformFee,
+            'net_amount' => $amount - $platformFee,
+            'currency' => $selectedCurrency,
+            'payment_method' => 'bachs',
+            'status' => 'pending',
+        ]);
+
+        $checkout = app(BachsService::class)->createCheckout($transaction, $member, $tenant);
+
+        if (! $checkout['success']) {
+            $transaction->update(['status' => 'failed']);
+
             return response()->json([
                 'success' => false,
-                'message' => 'The purchase amount does not match the selected plan.',
+                'message' => $checkout['message'] ?? 'Could not start the payment checkout.',
             ], 422);
         }
 
-        $reference = trim($validated['payment_reference']);
+        $transaction->update([
+            'provider_checkout_id' => $checkout['checkout_id'] ?? null,
+        ]);
 
-        if (config('fitcloud.verify_paystack_references', false)) {
-            $verification = app(PaystackService::class)->verifyTransaction($reference);
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'checkout_url' => $checkout['checkout_url'],
+                'reference' => $transaction->reference,
+            ],
+        ]);
+    }
 
-            if (! $verification['success']
-                || ($verification['status'] ?? null) !== 'success'
-                || ($verification['reference'] ?? null) !== $reference) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Payment could not be verified with Paystack. Please try again or contact support.',
-                ], 422);
-            }
+    /**
+     * Confirm a completed checkout and activate the member plan.
+     */
+    public function purchasePlan(Request $request)
+    {
+        $member = $request->user();
 
-            if ((int) ($verification['amount'] ?? 0) !== (int) round($expectedAmount * 100)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'The verified payment amount does not match the selected plan.',
-                ], 422);
-            }
+        $validated = $request->validate([
+            'checkout_id' => 'nullable|string|max:255',
+            'reference' => 'nullable|string|max:255',
+        ]);
 
-            $verifiedEmail = strtolower((string) ($verification['data']['customer']['email'] ?? ''));
-
-            if ($verifiedEmail !== '' && $verifiedEmail !== strtolower((string) $member->email)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'The verified payment does not belong to this member account.',
-                ], 422);
-            }
-        } elseif (app()->environment('production')) {
+        if (empty($validated['checkout_id']) && empty($validated['reference'])) {
             return response()->json([
                 'success' => false,
-                'message' => 'Online payments are not configured correctly. Please contact the gym.',
-            ], 503);
+                'message' => 'A checkout reference is required.',
+            ], 422);
         }
 
-        return DB::transaction(function () use ($member, $plan, $reference, $expectedAmount) {
-            $existingTransaction = Transaction::where('reference', $reference)
-                ->lockForUpdate()
-                ->first();
+        $query = Transaction::where('tenant_id', $member->tenant_id)
+            ->where('member_id', $member->id);
 
-            if ($existingTransaction) {
-                if ((int) $existingTransaction->member_id !== (int) $member->id
-                    || $existingTransaction->status !== 'successful') {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'This payment reference has already been used.',
-                    ], 422);
-                }
+        if (! empty($validated['checkout_id'])) {
+            $query->where('provider_checkout_id', $validated['checkout_id']);
+        } else {
+            $query->where('reference', $validated['reference']);
+        }
 
-                $existingPlan = MemberPlan::where('tenant_id', $member->tenant_id)
-                    ->where('member_id', $member->id)
-                    ->where('status', 'active')
-                    ->latest('id')
-                    ->first();
+        $transaction = $query->latest('id')->first();
 
-                return response()->json([
-                    'success' => true,
-                    'message' => 'This payment has already been applied to your membership.',
-                    'data' => [
-                        'member_plan' => $existingPlan?->load('pricingPlan'),
-                        'transaction' => $existingTransaction,
-                    ],
-                ]);
-            }
+        if (! $transaction) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Payment checkout not found.',
+            ], 404);
+        }
 
-            $transaction = Transaction::create([
-                'tenant_id' => $member->tenant_id,
-                'member_id' => $member->id,
-                'pricing_plan_id' => $plan->id,
-                'reference' => $reference,
-                'amount' => $expectedAmount,
-                'platform_fee' => 0,
-                'net_amount' => $expectedAmount,
-                'currency' => $member->tenant?->currency ?? 'NGN',
-                'payment_method' => 'paystack',
-                'status' => 'successful',
-            ]);
-
-            $durationDays = $plan->duration_days ?: 30;
-            $existingPlan = MemberPlan::where('tenant_id', $member->tenant_id)
+        if ($transaction->status === 'successful') {
+            $plan = MemberPlan::where('tenant_id', $member->tenant_id)
                 ->where('member_id', $member->id)
                 ->where('status', 'active')
-                ->where('expires_at', '>', now())
-                ->latest('expires_at')
+                ->latest('id')
                 ->first();
-
-            $startsAt = $existingPlan ? $existingPlan->expires_at : now();
-            $expiresAt = (clone $startsAt)->addDays($durationDays);
-
-            $memberPlan = MemberPlan::create([
-                'tenant_id' => $member->tenant_id,
-                'member_id' => $member->id,
-                'pricing_plan_id' => $plan->id,
-                'starts_at' => $startsAt,
-                'expires_at' => $expiresAt,
-                'status' => 'active',
-            ]);
-
-            $member->update(['status' => 'active']);
 
             return response()->json([
                 'success' => true,
-                'message' => "Subscription to {$plan->name} activated successfully! Valid until {$expiresAt->format('M d, Y')}.",
+                'message' => 'This payment has already been applied to your membership.',
                 'data' => [
-                    'member_plan' => $memberPlan->load('pricingPlan'),
+                    'member_plan' => $plan?->load('pricingPlan'),
                     'transaction' => $transaction,
                 ],
-            ], 201);
-        });
+            ]);
+        }
+
+        if (! $transaction->provider_checkout_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This checkout has no provider reference.',
+            ], 422);
+        }
+
+        $checkout = app(BachsService::class)->getCheckout($transaction->provider_checkout_id);
+
+        if (! $checkout['success']) {
+            return response()->json([
+                'success' => false,
+                'message' => $checkout['message'] ?? 'Could not verify the payment checkout.',
+            ], 422);
+        }
+
+        $status = strtolower((string) ($checkout['data']['status'] ?? ''));
+
+        if (! in_array($status, ['completed', 'succeeded', 'paid'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The payment has not completed yet. Please wait a moment and refresh.',
+            ], 422);
+        }
+
+        $memberPlan = app(MembershipActivationService::class)->activateFromTransaction($transaction);
+
+        if (! $memberPlan) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The payment could not be applied to a membership plan.',
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Subscription activated successfully.',
+            'data' => [
+                'member_plan' => $memberPlan->load('pricingPlan'),
+                'transaction' => $transaction->fresh(),
+            ],
+        ], 201);
     }
 }

@@ -7,6 +7,7 @@ use App\Models\Tenant;
 use App\Models\TenantUser;
 use App\Models\Terminal;
 use App\Services\LicenseService;
+use App\Services\PlatformSettingsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
@@ -44,7 +45,7 @@ class AuthController extends Controller
             null,
             'trial',
             $user->email,
-            30
+            app(PlatformSettingsService::class)->trialDays()
         );
 
         $token = $user->createToken('central-auth-token')->plainTextToken;

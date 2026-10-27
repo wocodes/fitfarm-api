@@ -134,7 +134,7 @@ class SecurityBoundaryTest extends TestCase
             ->assertStatus(401);
     }
 
-    public function test_member_purchase_rejects_amount_mismatch(): void
+    public function test_member_checkout_confirmation_requires_a_reference(): void
     {
         $member = Member::create([
             'tenant_id' => $this->tenantA->id,
@@ -146,22 +146,10 @@ class SecurityBoundaryTest extends TestCase
             'status' => 'active',
         ]);
 
-        $plan = PricingPlan::create([
-            'tenant_id' => $this->tenantA->id,
-            'name' => 'Monthly',
-            'price' => 10000,
-            'duration_days' => 30,
-            'is_active' => true,
-        ]);
-
         $token = $member->createToken('member-portal-token', ['member'])->plainTextToken;
 
         $this->withToken($token)
-            ->postJson('/api/v1/member/plans/purchase', [
-                'pricing_plan_id' => $plan->id,
-                'payment_reference' => 'TEST-REFERENCE',
-                'amount' => 1,
-            ])
+            ->postJson('/api/v1/member/plans/purchase', [])
             ->assertStatus(422)
             ->assertJsonPath('success', false);
     }
@@ -189,10 +177,8 @@ class SecurityBoundaryTest extends TestCase
         $token = $member->createToken('member-portal-token', ['member'])->plainTextToken;
 
         $this->withToken($token)
-            ->postJson('/api/v1/member/plans/purchase', [
+            ->postJson('/api/v1/member/plans/initialize', [
                 'pricing_plan_id' => $foreignPlan->id,
-                'payment_reference' => 'TEST-FOREIGN-REFERENCE',
-                'amount' => 10000,
             ])
             ->assertStatus(404);
     }

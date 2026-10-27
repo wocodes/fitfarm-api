@@ -4,9 +4,18 @@ namespace App\Http\Controllers\Central;
 
 use App\Http\Controllers\Controller;
 use App\Models\License;
+use App\Models\Member;
 use App\Models\Tenant;
+use App\Models\TenantUser;
 use App\Services\LicenseService;
+use App\Services\PlatformSettingsService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Laravel\Sanctum\PersonalAccessToken;
+use Spatie\Permission\Models\Role;
 
 class SuperAdminController extends Controller
 {
@@ -31,7 +40,7 @@ class SuperAdminController extends Controller
                 'suspended_tenants' => Tenant::where('status', 'suspended')->count(),
                 'total_licenses' => License::count(),
                 'active_licenses' => License::where('is_active', true)->count(),
-            ]
+            ],
         ]);
     }
 
@@ -64,7 +73,10 @@ class SuperAdminController extends Controller
         $license = $this->licenseService->generateLicense(
             $validated['plan_tier'] ?? 'starter',
             $validated['max_members'] ?? 100,
-            $validated['allowed_features'] ?? null
+            $validated['allowed_features'] ?? null,
+            'trial',
+            null,
+            app(PlatformSettingsService::class)->trialDays()
         );
 
         return response()->json([
@@ -91,7 +103,7 @@ class SuperAdminController extends Controller
             $validated['extension_days'] ?? 365
         );
 
-        if (!$result['success']) {
+        if (! $result['success']) {
             return response()->json([
                 'success' => false,
                 'message' => $result['message'],
@@ -102,6 +114,103 @@ class SuperAdminController extends Controller
             'success' => true,
             'message' => $result['message'],
             'data' => $result['license'],
+        ]);
+    }
+
+    /**
+     * Read the editable public landing/platform settings.
+     */
+    public function platformContent(PlatformSettingsService $settings)
+    {
+        return response()->json([
+            'success' => true,
+            'data' => $settings->all(),
+        ]);
+    }
+
+    /**
+     * Update the editable public landing/platform settings.
+     */
+    public function updatePlatformContent(Request $request, PlatformSettingsService $settings)
+    {
+        $validated = $request->validate([
+            'trial_days' => 'required|integer|min:1|max:365',
+            'default_currency' => 'required|in:NGN,USD',
+            'usd_rate' => 'required|numeric|min:0.0001',
+            'landing' => 'required|array',
+        ]);
+
+        $content = $settings->save($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Landing page settings updated.',
+            'data' => $content,
+        ]);
+    }
+
+    /**
+     * Destructively remove every gym tenant and all tenant-owned data.
+     * The platform super-admin accounts and global permissions are preserved.
+     */
+    public function resetPlatform(Request $request)
+    {
+        $validated = $request->validate([
+            'confirmation' => 'required|string',
+        ]);
+
+        if ($validated['confirmation'] !== 'RESET ALL GYMS') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Type RESET ALL GYMS exactly to confirm this action.',
+            ], 422);
+        }
+
+        $counts = DB::transaction(function () {
+            $tenantIds = Tenant::query()->pluck('id');
+            $superAdminIds = TenantUser::query()
+                ->whereNull('tenant_id')
+                ->whereIn('role', ['ROLE_SUPER_ADMIN', 'ROLE_SUPERADMIN', 'super_admin', 'superadmin'])
+                ->pluck('id');
+
+            $counts = [
+                'tenants' => Tenant::count(),
+                'licenses' => License::count(),
+            ];
+
+            Tenant::query()->get()->each->delete();
+
+            License::query()->delete();
+            TenantUser::query()
+                ->whereNull('tenant_id')
+                ->whereNotIn('id', $superAdminIds)
+                ->delete();
+            Role::query()->whereNotNull('tenant_id')->delete();
+
+            PersonalAccessToken::query()
+                ->where('tokenable_type', Member::class)
+                ->delete();
+            PersonalAccessToken::query()
+                ->where('tokenable_type', TenantUser::class)
+                ->whereNotIn('tokenable_id', $superAdminIds)
+                ->delete();
+
+            return $counts;
+        });
+
+        Storage::disk('local')->deleteDirectory('backups');
+        Storage::disk('public')->deleteDirectory('cms');
+        Cache::flush();
+
+        Log::warning('Platform data reset executed.', [
+            'super_admin_id' => $request->user()?->id,
+            'counts' => $counts,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'All gym tenants and related data have been removed.',
+            'data' => $counts,
         ]);
     }
 

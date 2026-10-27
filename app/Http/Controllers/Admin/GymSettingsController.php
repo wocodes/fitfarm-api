@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\ThemeSetting;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class GymSettingsController extends Controller
 {
@@ -144,6 +145,47 @@ class GymSettingsController extends Controller
                     'liability_waiver' => self::getDefaultWaiver(),
                     'refund_policy' => self::getDefaultRefund(),
                 ],
+            ],
+        ]);
+    }
+
+    /**
+     * Upload a tenant logo and store its public URL on the tenant.
+     */
+    public function uploadLogo(Request $request)
+    {
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
+
+        if (! $tenant) {
+            return response()->json(['success' => false, 'message' => 'Gym not found.'], 404);
+        }
+
+        $request->validate([
+            'logo' => 'required|image|mimes:jpeg,png,jpg,webp|max:4096',
+        ]);
+
+        $file = $request->file('logo');
+        $extension = $file->extension() ?: 'png';
+        $path = $file->storeAs('public/branding/'.$tenant->slug, 'logo.'.$extension);
+        $url = url(Storage::url('branding/'.$tenant->slug.'/logo.'.$extension));
+
+        $tenant->update(['logo_url' => $url]);
+
+        AuditLogController::log(
+            $tenant->id,
+            $request->user()?->name ?? 'Owner',
+            'TENANT_LOGO_UPDATED',
+            'Tenant',
+            (string) $tenant->id,
+            'Updated the gym logo.'
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Gym logo updated successfully.',
+            'data' => [
+                'logo_url' => $url,
+                'tenant' => $tenant->fresh(['theme']),
             ],
         ]);
     }

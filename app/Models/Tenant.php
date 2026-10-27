@@ -104,8 +104,11 @@ class Tenant extends Model
             $base = $platform !== ''
                 ? 'https://'.$this->slug.'.'.trim($platform, '.')
                 : 'http://localhost:3002';
+
+            return rtrim($base, '/');
         }
 
+        // A custom member-app override may serve multiple tenants from one host.
         return rtrim($base, '/').'?tenant='.$this->slug;
     }
 

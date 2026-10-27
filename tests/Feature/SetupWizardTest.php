@@ -96,7 +96,7 @@ class SetupWizardTest extends TestCase
             ->assertJsonPath('data.tenant.slug', 'polanfit-arena')
             ->assertJsonPath('data.tenant.currency', 'NGN')
             ->assertJsonPath('data.urls.admin_app', 'https://admin.fitcloud.io?tenant=polanfit-arena')
-            ->assertJsonPath('data.urls.member_app', 'https://polanfit-arena.fitcloud.io?tenant=polanfit-arena');
+            ->assertJsonPath('data.urls.member_app', 'https://polanfit-arena.fitcloud.io');
 
         $this->assertDatabaseHas('tenants', [
             'slug' => 'polanfit-arena',
