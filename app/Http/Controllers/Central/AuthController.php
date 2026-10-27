@@ -38,21 +38,22 @@ class AuthController extends Controller
             'role' => 'owner',
         ]);
 
-        // Automatically generate 30-Day Trial License key for new signup
+        $trialDays = app(PlatformSettingsService::class)->trialDays();
+
         $license = $this->licenseService->generateLicense(
             'starter',
             100,
             null,
             'trial',
             $user->email,
-            app(PlatformSettingsService::class)->trialDays()
+            $trialDays
         );
 
         $token = $user->createToken('central-auth-token')->plainTextToken;
 
         return response()->json([
             'success' => true,
-            'message' => 'User registered successfully. Your 30-day Trial License Key has been generated.',
+            'message' => "User registered successfully. Your {$trialDays}-day trial license key has been generated.",
             'data' => [
                 'user' => $user,
                 'token' => $token,
