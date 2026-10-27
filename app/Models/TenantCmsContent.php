@@ -79,7 +79,7 @@ class TenantCmsContent extends Model
                             'title' => 'Olympic Strength & Free Weights',
                             'category' => 'Strength',
                             'description' => 'Eleiko competition barbells, calibrated bumper plates, calibrated dumbbells up to 60kg, and heavy-duty power racks.',
-                            'image' => '/images/amenities/strength.webp',
+                            'image' => '/images/amenities/l1.webp',
                             'features' => ['6 Competition Racks', 'Calibrated Plates', 'Deadlift Platforms'],
                         ],
                         [
@@ -87,7 +87,7 @@ class TenantCmsContent extends Model
                             'title' => 'Cardio Performance & MetCon',
                             'category' => 'Cardio',
                             'description' => 'Woodway curved treadmills, Concept2 Rowers, SkiErgs, and Assault Bikes equipped with telemetry monitors.',
-                            'image' => '/images/amenities/cardio.webp',
+                            'image' => '/images/amenities/l2.webp',
                             'features' => ['Concept2 Ergs', 'Curved Speedmills', 'Heart-Rate Sync'],
                         ],
                         [
@@ -95,7 +95,7 @@ class TenantCmsContent extends Model
                             'title' => 'Combat Boxing & Striking Ring',
                             'category' => 'Combat',
                             'description' => 'Full-size regulation boxing ring, heavy teardrop bags, speedballs, and sparring pads for MMA and kickboxing.',
-                            'image' => '/images/amenities/boxing.webp',
+                            'image' => '/images/amenities/l4.webp',
                             'features' => ['Regulation Ring', 'Teardrop Heavy Bags', 'Padwork Drills'],
                         ],
                         [
@@ -103,7 +103,7 @@ class TenantCmsContent extends Model
                             'title' => 'Cold Plunge & Contrast Recovery',
                             'category' => 'Recovery',
                             'description' => 'Sub-3°C chilled ice tubs and infrared dry sauna to accelerate muscular regeneration and reduce systemic fatigue.',
-                            'image' => '/images/amenities/recovery.webp',
+                            'image' => '/images/amenities/l3.webp',
                             'features' => ['3°C Chilled Plunge', 'Infrared Sauna', 'Towel Service'],
                         ],
                     ],
