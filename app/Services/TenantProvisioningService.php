@@ -7,6 +7,7 @@ use App\Models\Tenant;
 use App\Models\TenantFeature;
 use App\Models\TenantUser;
 use App\Models\ThemeSetting;
+use App\Services\PlatformSettingsService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -45,7 +46,7 @@ class TenantProvisioningService
                 'pricing_path' => $data['pricing_path'] ?? 'free_tier',
                 'plan_tier' => $data['plan_tier'] ?? 'starter',
                 'status' => 'trialing',
-                'trial_ends_at' => Carbon::now()->addDays(30),
+                'trial_ends_at' => Carbon::now()->addDays(app(PlatformSettingsService::class)->trialDays()),
                 'setup_completed_at' => Carbon::now(),
             ]);
 

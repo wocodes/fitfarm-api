@@ -22,7 +22,9 @@ use App\Http\Controllers\Admin\TransactionController;
 use App\Http\Controllers\Central\AuthController;
 use App\Http\Controllers\Central\SetupController;
 use App\Http\Controllers\Central\SuperAdminController;
+use App\Http\Controllers\Central\PlatformController;
 use App\Http\Controllers\Member\MemberPortalController;
+use App\Http\Controllers\Webhook\BachsWebhookController;
 use App\Http\Controllers\Webhook\PaystackWebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -69,7 +71,12 @@ Route::prefix('v1')->group(function () {
     Route::post('/central/auth/login', [AuthController::class, 'login'])
         ->middleware('throttle:login');
 
+    Route::get('/platform', [PlatformController::class, 'show'])
+        ->middleware('throttle:120,1');
+
     // Webhooks
+    Route::post('/webhooks/bachs', [BachsWebhookController::class, 'handle'])
+        ->middleware('throttle:120,1');
     Route::post('/webhooks/paystack', [PaystackWebhookController::class, 'handle'])
         ->middleware('throttle:120,1');
 
@@ -78,8 +85,10 @@ Route::prefix('v1')->group(function () {
         Route::get('/member/profile', [MemberPortalController::class, 'profile']);
         Route::get('/member/active-session', [MemberPortalController::class, 'activeSession']);
         Route::post('/member/checkout', [MemberPortalController::class, 'checkout']);
-        Route::post('/member/plans/purchase', [MemberPortalController::class, 'purchasePlan'])
+        Route::post('/member/plans/initialize', [MemberPortalController::class, 'initializePlan'])
             ->middleware('throttle:10,1');
+        Route::post('/member/plans/purchase', [MemberPortalController::class, 'purchasePlan'])
+            ->middleware('throttle:30,1');
     });
 
     // Authenticated central platform endpoints
@@ -100,6 +109,9 @@ Route::prefix('v1')->group(function () {
             Route::post('/licenses/generate', [SuperAdminController::class, 'generateLicense']);
             Route::post('/licenses/renew', [SuperAdminController::class, 'renewLicense']);
             Route::patch('/tenants/{uuid}/status', [SuperAdminController::class, 'toggleTenantStatus']);
+            Route::post('/system/reset', [SuperAdminController::class, 'resetPlatform']);
+            Route::get('/platform-content', [SuperAdminController::class, 'platformContent']);
+            Route::put('/platform-content', [SuperAdminController::class, 'updatePlatformContent']);
         });
     });
 
@@ -233,6 +245,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/theme', [ThemeController::class, 'show']);
             Route::middleware('tenant_owner')->group(function () {
                 Route::post('/settings', [GymSettingsController::class, 'update']);
+                Route::post('/settings/logo', [GymSettingsController::class, 'uploadLogo']);
                 Route::post('/theme', [ThemeController::class, 'update']);
             });
 

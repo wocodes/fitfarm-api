@@ -9,7 +9,7 @@ use Illuminate\Support\Str;
 
 class Transaction extends Model
 {
-    use HasFactory, BelongsToTenant;
+    use BelongsToTenant, HasFactory;
 
     protected $fillable = [
         'uuid',
@@ -22,6 +22,7 @@ class Transaction extends Model
         'currency',
         'payment_method',
         'reference',
+        'provider_checkout_id',
         'status',
         'recorded_by',
         'notes',

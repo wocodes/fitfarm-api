@@ -1,8 +1,8 @@
-name: Deploy FitCloud API
+name: Deploy FitFarmHQ API
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, staging]
     paths:
       - 'app/**'
       - 'bootstrap/**'
@@ -14,9 +14,18 @@ on:
       - 'composer.lock'
       - '.github/workflows/deploy-api.yml'
   workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: production
+        type: choice
+        options:
+          - staging
+          - production
 
 concurrency:
-  group: deploy-api
+  group: deploy-api-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -45,6 +54,7 @@ jobs:
   build-and-deploy:
     needs: tests
     runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'staging' && 'staging' || 'production') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,7 +69,13 @@ jobs:
           DB_DATABASE: ${{ secrets.DB_DATABASE }}
           DB_USERNAME: ${{ secrets.DB_USERNAME }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          PAYSTACK_SECRET_KEY: ${{ secrets.PAYSTACK_SECRET_KEY }}
+          BACHS_SECRET_KEY: ${{ secrets.BACHS_SECRET_KEY }}
+          BACHS_WEBHOOK_SECRET: ${{ secrets.BACHS_WEBHOOK_SECRET }}
+          BACHS_BASE_URL: ${{ secrets.BACHS_BASE_URL || 'https://api.bachs.io' }}
+          API_SSH_TARGET_ROOT: ${{ secrets.API_SSH_TARGET_ROOT }}
+          API_PUBLIC_URL: ${{ secrets.API_PUBLIC_URL }}
+          APP_ENV: ${{ secrets.APP_ENV }}
+          APP_URL: ${{ secrets.APP_URL }}
         run: |
           test -n "$SSH_HOST" || { echo "::error::SSH_HOST secret is missing"; exit 1; }
           test -n "$SSH_USER" || { echo "::error::SSH_USER secret is missing"; exit 1; }
@@ -68,7 +84,26 @@ jobs:
           test -n "$DB_DATABASE" || { echo "::error::DB_DATABASE secret is missing"; exit 1; }
           test -n "$DB_USERNAME" || { echo "::error::DB_USERNAME secret is missing"; exit 1; }
           test -n "$DB_PASSWORD" || { echo "::error::DB_PASSWORD secret is missing"; exit 1; }
-          test -n "$PAYSTACK_SECRET_KEY" || { echo "::error::PAYSTACK_SECRET_KEY secret is missing"; exit 1; }
+          test -n "$BACHS_SECRET_KEY" || { echo "::error::BACHS_SECRET_KEY secret is missing"; exit 1; }
+          test -n "$BACHS_WEBHOOK_SECRET" || { echo "::error::BACHS_WEBHOOK_SECRET secret is missing"; exit 1; }
+          test -n "$API_SSH_TARGET_ROOT" || { echo "::error::API_SSH_TARGET_ROOT secret is missing"; exit 1; }
+          test -n "$API_PUBLIC_URL" || { echo "::error::API_PUBLIC_URL secret is missing"; exit 1; }
+          test -n "$APP_ENV" || { echo "::error::APP_ENV secret is missing"; exit 1; }
+          test -n "$APP_URL" || { echo "::error::APP_URL secret is missing"; exit 1; }
+          case "$BACHS_SECRET_KEY" in
+            sk_sandbox_*)
+              case "$BACHS_BASE_URL" in *sandbox-api.bachs.io*) ;; *)
+                echo "::error::Sandbox Bachs key requires BACHS_BASE_URL=https://sandbox-api.bachs.io"; exit 1;;
+              esac
+              ;;
+            sk_live_*)
+              case "$BACHS_BASE_URL" in https://api.bachs.io) ;; *)
+                echo "::error::Live Bachs key requires BACHS_BASE_URL=https://api.bachs.io"; exit 1;;
+              esac
+              ;;
+            *)
+              echo "::error::BACHS_SECRET_KEY must start with sk_sandbox_ or sk_live_"; exit 1;;
+          esac
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -86,6 +121,7 @@ jobs:
 
       - name: Generate production .env
         env:
+          APP_ENV: ${{ secrets.APP_ENV }}
           APP_KEY: ${{ secrets.APP_KEY }}
           APP_URL: ${{ secrets.APP_URL || 'https://api.fitfarmhq.com' }}
           PLATFORM_DOMAIN: ${{ secrets.PLATFORM_DOMAIN || 'fitfarmhq.com' }}
@@ -96,9 +132,10 @@ jobs:
           DB_DATABASE: ${{ secrets.DB_DATABASE }}
           DB_USERNAME: ${{ secrets.DB_USERNAME }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          PAYSTACK_SECRET_KEY: ${{ secrets.PAYSTACK_SECRET_KEY }}
-          PAYSTACK_PUBLIC_KEY: ${{ secrets.PAYSTACK_PUBLIC_KEY || '' }}
-          PAYSTACK_VERIFY_REFERENCES: ${{ secrets.PAYSTACK_VERIFY_REFERENCES || 'true' }}
+          BACHS_SECRET_KEY: ${{ secrets.BACHS_SECRET_KEY }}
+          BACHS_WEBHOOK_SECRET: ${{ secrets.BACHS_WEBHOOK_SECRET }}
+          BACHS_BASE_URL: ${{ secrets.BACHS_BASE_URL || 'https://api.bachs.io' }}
+          BACHS_CURRENCY: ${{ secrets.BACHS_CURRENCY || 'NGN' }}
           MAIL_MAILER: ${{ secrets.MAIL_MAILER || 'log' }}
           MAIL_HOST: ${{ secrets.MAIL_HOST || '' }}
           MAIL_PORT: ${{ secrets.MAIL_PORT || '587' }}
@@ -112,7 +149,7 @@ jobs:
         run: |
           printf '%s\n' \
             'APP_NAME=FitFarmHQ' \
-            'APP_ENV=production' \
+            "APP_ENV=$APP_ENV" \
             'APP_DEBUG=false' \
             "APP_URL=$APP_URL" \
             "APP_KEY=$APP_KEY" \
@@ -150,9 +187,10 @@ jobs:
             "PLATFORM_DOMAIN=$PLATFORM_DOMAIN" \
             "CORS_ALLOWED_ORIGINS=$CORS_ALLOWED_ORIGINS" \
             "CORS_ALLOWED_ORIGIN_PATTERNS=$CORS_ALLOWED_ORIGIN_PATTERNS" \
-            "PAYSTACK_SECRET_KEY=$PAYSTACK_SECRET_KEY" \
-            "PAYSTACK_PUBLIC_KEY=$PAYSTACK_PUBLIC_KEY" \
-            "PAYSTACK_VERIFY_REFERENCES=$PAYSTACK_VERIFY_REFERENCES" \
+            "BACHS_SECRET_KEY=$BACHS_SECRET_KEY" \
+            "BACHS_WEBHOOK_SECRET=$BACHS_WEBHOOK_SECRET" \
+            "BACHS_BASE_URL=$BACHS_BASE_URL" \
+            "BACHS_CURRENCY=$BACHS_CURRENCY" \
             "SUPER_ADMIN_EMAIL=$SUPER_ADMIN_EMAIL" \
             "SUPER_ADMIN_NAME=$SUPER_ADMIN_NAME" \
             "SUPER_ADMIN_PASSWORD=$SUPER_ADMIN_PASSWORD" \
@@ -175,7 +213,7 @@ jobs:
 
       - name: Enable maintenance mode
         env:
-          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/fitfarmhq.com/public_html/api' }}
+          TARGET: ${{ secrets.API_SSH_TARGET_ROOT }}
           SSH_PORT: ${{ secrets.SSH_PORT || '65002' }}
           PHP_BIN: ${{ secrets.PHP_BIN || '/opt/alt/php83/usr/bin/php' }}
         run: |
@@ -184,7 +222,7 @@ jobs:
 
       - name: Rsync application to Hostinger
         env:
-          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/fitfarmhq.com/public_html/api' }}
+          TARGET: ${{ secrets.API_SSH_TARGET_ROOT }}
           SSH_PORT: ${{ secrets.SSH_PORT || '65002' }}
         run: |
           rsync -az --delete --delay-updates \
@@ -212,7 +250,7 @@ jobs:
 
       - name: Run post-deploy commands
         env:
-          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/fitfarmhq.com/public_html/api' }}
+          TARGET: ${{ secrets.API_SSH_TARGET_ROOT }}
           SSH_PORT: ${{ secrets.SSH_PORT || '65002' }}
           PHP_BIN: ${{ secrets.PHP_BIN || '/opt/alt/php83/usr/bin/php' }}
         run: |
@@ -225,9 +263,11 @@ jobs:
             '$PHP_BIN' artisan up"
 
       - name: Verify API health
+        env:
+          API_PUBLIC_URL: ${{ secrets.API_PUBLIC_URL }}
         run: |
           for attempt in 1 2 3 4 5; do
-            if curl -fsS --max-time 15 https://api.fitfarmhq.com/up >/dev/null; then
+            if curl -fsS --max-time 15 "${API_PUBLIC_URL}/up" >/dev/null; then
               echo "API health check passed."
               exit 0
             fi
@@ -239,7 +279,7 @@ jobs:
       - name: Ensure maintenance mode is disabled
         if: always()
         env:
-          TARGET: ${{ secrets.API_SSH_TARGET_ROOT || 'domains/fitfarmhq.com/public_html/api' }}
+          TARGET: ${{ secrets.API_SSH_TARGET_ROOT }}
           SSH_PORT: ${{ secrets.SSH_PORT || '65002' }}
           PHP_BIN: ${{ secrets.PHP_BIN || '/opt/alt/php83/usr/bin/php' }}
         run: |

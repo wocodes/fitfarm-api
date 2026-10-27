@@ -8,7 +8,7 @@ use Illuminate\Support\Str;
 class LicenseService
 {
     /**
-     * Generate a new unique license key (defaults to 30-day Trial mode).
+     * Generate a new unique license key (defaults to the configured trial period).
      */
     public function generateLicense(
         string $planTier = 'starter',
@@ -16,7 +16,7 @@ class LicenseService
         ?array $allowedFeatures = null,
         string $mode = 'trial',
         ?string $userEmail = null,
-        ?int $trialDays = 30
+        ?int $trialDays = 90
     ): License {
         $key = 'FC-'.strtoupper(Str::random(4)).'-'.strtoupper(Str::random(4)).'-'.strtoupper(Str::random(4));
 

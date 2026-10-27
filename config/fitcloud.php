@@ -19,8 +19,21 @@ return [
     // e.g. {slug}.fitfarmhq.com and admin.fitfarmhq.com.
     'platform_domain' => env('PLATFORM_DOMAIN', ''),
 
-    // When true, member purchases are verified against Paystack before activation.
-    'verify_paystack_references' => env('PAYSTACK_VERIFY_REFERENCES', false),
+    /*
+    |--------------------------------------------------------------------------
+    | Payment provider
+    |--------------------------------------------------------------------------
+    |
+    | Bachs is the active checkout provider. Paystack settings remain only for
+    | legacy records and the old webhook endpoint.
+    |
+    */
+    'bachs' => [
+        'secret_key' => env('BACHS_SECRET_KEY', ''),
+        'base_url' => env('BACHS_BASE_URL', 'https://api.bachs.io'),
+        'webhook_secret' => env('BACHS_WEBHOOK_SECRET', ''),
+        'currency' => env('BACHS_CURRENCY', 'NGN'),
+    ],
 
     'paystack' => [
         'secret_key' => env('PAYSTACK_SECRET_KEY', ''),
@@ -28,6 +41,21 @@ return [
         'merchant_email' => env('PAYSTACK_MERCHANT_EMAIL', 'billing@fitfarmhq.com'),
     ],
 
-    'trial_days' => 14,
+    'trial_days' => 90,
     'default_max_members' => 100,
+
+    /*
+    |--------------------------------------------------------------------------
+    | One-time platform administrator bootstrap
+    |--------------------------------------------------------------------------
+    |
+    | These values are consumed by DatabaseSeeder. They live in config so they
+    | still work when the production configuration cache is enabled.
+    |
+    */
+    'super_admin' => [
+        'email' => env('SUPER_ADMIN_EMAIL'),
+        'name' => env('SUPER_ADMIN_NAME', 'Platform Admin'),
+        'password' => env('SUPER_ADMIN_PASSWORD'),
+    ],
 ];

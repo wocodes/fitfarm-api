@@ -50,8 +50,8 @@ class DatabaseSeeder extends Seeder
      */
     private function seedSuperAdmin(): void
     {
-        $email = env('SUPER_ADMIN_EMAIL');
-        $password = env('SUPER_ADMIN_PASSWORD');
+        $email = config('fitcloud.super_admin.email');
+        $password = config('fitcloud.super_admin.password');
 
         if (! $email || ! $password) {
             $this->command?->warn(
@@ -65,7 +65,7 @@ class DatabaseSeeder extends Seeder
             ['email' => strtolower($email)],
             [
                 'tenant_id' => null,
-                'name' => env('SUPER_ADMIN_NAME', 'Platform Admin'),
+                'name' => config('fitcloud.super_admin.name', 'Platform Admin'),
                 'password' => Hash::make($password),
                 'role' => 'ROLE_SUPER_ADMIN',
             ]
